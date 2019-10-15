@@ -116,6 +116,19 @@
 			#reset-cells = <1>;
 		};
 
+		i2c0: i2c@1C27000 {
+			compatible = "allwinner,sun6i-a31-i2c";
+			reg = <0x01C27000 0x400>;
+			interrupts = <7>;
+			clocks = <&ccu CLK_BUS_I2C0>;
+			resets = <&ccu RST_BUS_I2C0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&i2c0_pins>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
 		intc: interrupt-controller@1c20400 {
 			compatible = "allwinner,suniv-f1c100s-ic";
 			reg = <0x01c20400 0x400>;

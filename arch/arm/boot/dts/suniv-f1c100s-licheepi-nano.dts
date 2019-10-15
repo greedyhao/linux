@@ -54,6 +54,30 @@
 	status = "okay";
 };
 
+&i2c0 {
+    pinctrl-0 = <&i2c0_pins>;
+    pinctrl-names = "default";
+    status = "okay";
+
+    gt911: touchscreen@14 {
+        compatible = "goodix,gt911";
+        reg = <0x14>;
+        interrupt-parent = <&pio>;
+        interrupts = <4 10 IRQ_TYPE_EDGE_FALLING>; /* (PE10) */
+        pinctrl-names = "default";
+        irq-gpios = <&pio 4 10 GPIO_ACTIVE_HIGH>; /* (PE10) */
+        reset-gpios = <&pio 4 9 GPIO_ACTIVE_HIGH>; /* RST (PE9) */
+        /* touchscreen-swapped-x-y */
+    };
+};
+
+&mmc0 {
+	vmmc-supply = <&reg_vcc3v3>;
+	bus-width = <4>;
+	broken-cd;
+	status = "okay";
+};
+
 &tcon0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&lcd_rgb666_pins>;
@@ -65,13 +89,6 @@
 		reg = <0>;
 		remote-endpoint = <&panel_input>;
 	};
-};
-
-&mmc0 {
-	vmmc-supply = <&reg_vcc3v3>;
-	bus-width = <4>;
-	broken-cd;
-	status = "okay";
 };
 
 &uart0 {
