@@ -4466,6 +4466,8 @@ xfs_btree_lblock_verify(
  *				      btree block
  *
  * @bp: buffer containing the btree block
+ * @max_recs: pointer to the m_*_mxr max records field in the xfs mount
+ * @pag_max_level: pointer to the per-ag max level field
  */
 xfs_failaddr_t
 xfs_btree_sblock_v5hdr_verify(
@@ -4598,7 +4600,7 @@ xfs_btree_simple_query_range(
 
 		/* Callback */
 		error = fn(cur, recp, priv);
-		if (error)
+		if (error < 0 || error == XFS_BTREE_QUERY_RANGE_ABORT)
 			break;
 
 advloop:
@@ -4700,7 +4702,8 @@ pop_up:
 			 */
 			if (ldiff >= 0 && hdiff >= 0) {
 				error = fn(cur, recp, priv);
-				if (error)
+				if (error < 0 ||
+				    error == XFS_BTREE_QUERY_RANGE_ABORT)
 					break;
 			} else if (hdiff < 0) {
 				/* Record is larger than high key; pop. */
@@ -4771,7 +4774,8 @@ out:
  * Query a btree for all records overlapping a given interval of keys.  The
  * supplied function will be called with each record found; return one of the
  * XFS_BTREE_QUERY_RANGE_{CONTINUE,ABORT} values or the usual negative error
- * code.  This function returns -ECANCELED, zero, or a negative error code.
+ * code.  This function returns XFS_BTREE_QUERY_RANGE_ABORT, zero, or a
+ * negative error code.
  */
 int
 xfs_btree_query_range(
@@ -4887,7 +4891,7 @@ xfs_btree_has_record_helper(
 	union xfs_btree_rec		*rec,
 	void				*priv)
 {
-	return -ECANCELED;
+	return XFS_BTREE_QUERY_RANGE_ABORT;
 }
 
 /* Is there a record covering a given range of keys? */
@@ -4902,7 +4906,7 @@ xfs_btree_has_record(
 
 	error = xfs_btree_query_range(cur, low, high,
 			&xfs_btree_has_record_helper, NULL);
-	if (error == -ECANCELED) {
+	if (error == XFS_BTREE_QUERY_RANGE_ABORT) {
 		*exists = true;
 		return 0;
 	}

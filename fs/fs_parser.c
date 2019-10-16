@@ -204,23 +204,9 @@ int fs_parse(struct fs_context *fc,
 		goto okay;
 
 	case fs_param_is_fd: {
-		switch (param->type) {
-		case fs_value_is_string:
-			if (!result->has_value)
-				goto bad_value;
-
-			ret = kstrtouint(param->string, 0, &result->uint_32);
-			break;
-		case fs_value_is_file:
-			result->uint_32 = param->dirfd;
-			ret = 0;
-		default:
+		if (param->type != fs_value_is_file)
 			goto bad_value;
-		}
-
-		if (result->uint_32 > INT_MAX)
-			goto bad_value;
-		goto maybe_okay;
+		goto okay;
 	}
 
 	case fs_param_is_blockdev:
@@ -278,7 +264,6 @@ int fs_lookup_param(struct fs_context *fc,
 		return invalf(fc, "%s: not usable as path", param->key);
 	}
 
-	f->refcnt++; /* filename_lookup() drops our ref. */
 	ret = filename_lookup(param->dirfd, f, flags, _path, NULL);
 	if (ret < 0) {
 		errorf(fc, "%s: Lookup failure for '%s'", param->key, f->name);

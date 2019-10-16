@@ -78,7 +78,7 @@ static u16 select_service_from_set(int field, int line, u16 set, int is_pal)
 			return 0;
 	}
 	for (i = 0; i < 32; i++) {
-		if (BIT(i) & set)
+		if ((1 << i) & set)
 			return 1 << i;
 	}
 	return 0;

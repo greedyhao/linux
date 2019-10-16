@@ -1143,6 +1143,7 @@ static int msm8916_wcd_digital_probe(struct platform_device *pdev)
 	struct msm8916_wcd_digital_priv *priv;
 	struct device *dev = &pdev->dev;
 	void __iomem *base;
+	struct resource *mem_res;
 	struct regmap *digital_map;
 	int ret;
 
@@ -1150,7 +1151,8 @@ static int msm8916_wcd_digital_probe(struct platform_device *pdev)
 	if (!priv)
 		return -ENOMEM;
 
-	base = devm_platform_ioremap_resource(pdev, 0);
+	mem_res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	base = devm_ioremap_resource(&pdev->dev, mem_res);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 

@@ -16,6 +16,7 @@
  *  futex ... Futex performance
  *  epoll ... Event poll performance
  */
+#include "perf.h"
 #include <subcmd/parse-options.h>
 #include "builtin.h"
 #include "bench/bench.h"

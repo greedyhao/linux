@@ -709,6 +709,12 @@ static int _gadget_stop_activity(struct usb_gadget *gadget)
 	struct ci_hdrc    *ci = container_of(gadget, struct ci_hdrc, gadget);
 	unsigned long flags;
 
+	spin_lock_irqsave(&ci->lock, flags);
+	ci->gadget.speed = USB_SPEED_UNKNOWN;
+	ci->remote_wakeup = 0;
+	ci->suspended = 0;
+	spin_unlock_irqrestore(&ci->lock, flags);
+
 	/* flush all endpoints */
 	gadget_for_each_ep(ep, gadget) {
 		usb_ep_fifo_flush(ep);
@@ -725,12 +731,6 @@ static int _gadget_stop_activity(struct usb_gadget *gadget)
 		usb_ep_free_request(&ci->ep0in->ep, ci->status);
 		ci->status = NULL;
 	}
-
-	spin_lock_irqsave(&ci->lock, flags);
-	ci->gadget.speed = USB_SPEED_UNKNOWN;
-	ci->remote_wakeup = 0;
-	ci->suspended = 0;
-	spin_unlock_irqrestore(&ci->lock, flags);
 
 	return 0;
 }
@@ -1303,10 +1303,6 @@ static int ep_disable(struct usb_ep *ep)
 		return -EBUSY;
 
 	spin_lock_irqsave(hwep->lock, flags);
-	if (hwep->ci->gadget.speed == USB_SPEED_UNKNOWN) {
-		spin_unlock_irqrestore(hwep->lock, flags);
-		return 0;
-	}
 
 	/* only internal SW should disable ctrl endpts */
 
@@ -1396,10 +1392,6 @@ static int ep_queue(struct usb_ep *ep, struct usb_request *req,
 		return -EINVAL;
 
 	spin_lock_irqsave(hwep->lock, flags);
-	if (hwep->ci->gadget.speed == USB_SPEED_UNKNOWN) {
-		spin_unlock_irqrestore(hwep->lock, flags);
-		return 0;
-	}
 	retval = _ep_queue(ep, req, gfp_flags);
 	spin_unlock_irqrestore(hwep->lock, flags);
 	return retval;
@@ -1423,8 +1415,8 @@ static int ep_dequeue(struct usb_ep *ep, struct usb_request *req)
 		return -EINVAL;
 
 	spin_lock_irqsave(hwep->lock, flags);
-	if (hwep->ci->gadget.speed != USB_SPEED_UNKNOWN)
-		hw_ep_flush(hwep->ci, hwep->num, hwep->dir);
+
+	hw_ep_flush(hwep->ci, hwep->num, hwep->dir);
 
 	list_for_each_entry_safe(node, tmpnode, &hwreq->tds, td) {
 		dma_pool_free(hwep->td_pool, node->ptr, node->dma);
@@ -1495,10 +1487,6 @@ static void ep_fifo_flush(struct usb_ep *ep)
 	}
 
 	spin_lock_irqsave(hwep->lock, flags);
-	if (hwep->ci->gadget.speed == USB_SPEED_UNKNOWN) {
-		spin_unlock_irqrestore(hwep->lock, flags);
-		return;
-	}
 
 	hw_ep_flush(hwep->ci, hwep->num, hwep->dir);
 
@@ -1571,10 +1559,6 @@ static int ci_udc_wakeup(struct usb_gadget *_gadget)
 	int ret = 0;
 
 	spin_lock_irqsave(&ci->lock, flags);
-	if (ci->gadget.speed == USB_SPEED_UNKNOWN) {
-		spin_unlock_irqrestore(&ci->lock, flags);
-		return 0;
-	}
 	if (!ci->remote_wakeup) {
 		ret = -EOPNOTSUPP;
 		goto out;
@@ -1762,10 +1746,11 @@ static int ci_udc_start(struct usb_gadget *gadget,
 			 struct usb_gadget_driver *driver)
 {
 	struct ci_hdrc *ci = container_of(gadget, struct ci_hdrc, gadget);
-	int retval;
+	int retval = -ENOMEM;
 
 	if (driver->disconnect == NULL)
 		return -EINVAL;
+
 
 	ci->ep0out->ep.desc = &ctrl_endpt_out_desc;
 	retval = usb_ep_enable(&ci->ep0out->ep);

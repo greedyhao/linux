@@ -1463,7 +1463,8 @@ static int gfs2_dir_read_leaf(struct inode *inode, struct dir_context *ctx,
 				sort_offset : entries, copied);
 out_free:
 	for(i = 0; i < leaf; i++)
-		brelse(larr[i]);
+		if (larr[i])
+			brelse(larr[i]);
 	kvfree(larr);
 out:
 	return error;

@@ -19,9 +19,7 @@ quiet_cmd_mk_schema = SCHEMA  $@
 
 DT_DOCS = $(shell \
 	cd $(srctree)/$(src) && \
-	find * \( -name '*.yaml' ! \
-		-name $(DT_TMP_SCHEMA) ! \
-		-name '*.example.dt.yaml' \) \
+	find * \( -name '*.yaml' ! -name $(DT_TMP_SCHEMA) \) \
 	)
 
 DT_SCHEMA_FILES ?= $(addprefix $(src)/,$(DT_DOCS))

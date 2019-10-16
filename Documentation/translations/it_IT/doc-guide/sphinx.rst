@@ -242,9 +242,8 @@ del kernel:
 * Per inserire blocchi di testo con caratteri a dimensione fissa (codici di
   esempio, casi d'uso, eccetera): utilizzate ``::`` quando non è necessario
   evidenziare la sintassi, specialmente per piccoli frammenti; invece,
-  utilizzate ``.. code-block:: <language>`` per blocchi più lunghi che
-  beneficeranno della sintassi evidenziata. Per un breve pezzo di codice da
-  inserire nel testo, usate \`\`.
+  utilizzate ``.. code-block:: <language>`` per blocchi di più lunghi che
+  potranno beneficiare dell'avere la sintassi evidenziata.
 
 
 Il dominio C
@@ -268,14 +267,12 @@ molto comune come ``open`` o ``ioctl``:
 
 Il nome della funzione (per esempio ioctl) rimane nel testo ma il nome del suo
 riferimento cambia da ``ioctl`` a ``VIDIOC_LOG_STATUS``. Anche la voce
-nell'indice cambia in ``VIDIOC_LOG_STATUS``.
+nell'indice cambia in ``VIDIOC_LOG_STATUS`` e si potrà quindi fare riferimento
+a questa funzione scrivendo:
 
-Notate che per una funzione non c'è bisogno di usare ``c:func:`` per generarne
-i riferimenti nella documentazione. Grazie a qualche magica estensione a
-Sphinx, il sistema di generazione della documentazione trasformerà
-automaticamente un riferimento ad una ``funzione()`` in un riferimento
-incrociato quando questa ha una voce nell'indice.  Se trovate degli usi di
-``c:func:`` nella documentazione del kernel, sentitevi liberi di rimuoverli.
+.. code-block:: rst
+
+     :c:func:`VIDIOC_LOG_STATUS`
 
 
 Tabelle a liste

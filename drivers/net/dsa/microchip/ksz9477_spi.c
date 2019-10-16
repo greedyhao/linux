@@ -13,6 +13,7 @@
 #include <linux/regmap.h>
 #include <linux/spi/spi.h>
 
+#include "ksz_priv.h"
 #include "ksz_common.h"
 
 #define SPI_ADDR_SHIFT			24
@@ -80,8 +81,6 @@ static const struct of_device_id ksz9477_dt_ids[] = {
 	{ .compatible = "microchip,ksz9897" },
 	{ .compatible = "microchip,ksz9893" },
 	{ .compatible = "microchip,ksz9563" },
-	{ .compatible = "microchip,ksz8563" },
-	{ .compatible = "microchip,ksz9567" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, ksz9477_dt_ids);

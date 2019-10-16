@@ -222,7 +222,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 	struct dp_stats_percpu *stats;
 	u64 *stats_counter;
 	u32 n_mask_hit;
-	int error;
 
 	stats = this_cpu_ptr(dp->stats_percpu);
 
@@ -230,6 +229,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 	flow = ovs_flow_tbl_lookup_stats(&dp->table, key, &n_mask_hit);
 	if (unlikely(!flow)) {
 		struct dp_upcall_info upcall;
+		int error;
 
 		memset(&upcall, 0, sizeof(upcall));
 		upcall.cmd = OVS_PACKET_CMD_MISS;
@@ -246,10 +246,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
 	ovs_flow_stats_update(flow, key->tp.flags, skb);
 	sf_acts = rcu_dereference(flow->sf_acts);
-	error = ovs_execute_actions(dp, skb, sf_acts, key);
-	if (unlikely(error))
-		net_dbg_ratelimited("ovs: action execution error on datapath %s: %d\n",
-							ovs_dp_name(dp), error);
+	ovs_execute_actions(dp, skb, sf_acts, key);
 
 	stats_counter = &stats->n_hit;
 
@@ -1050,7 +1047,7 @@ error:
 }
 
 /* Factor out action copy to avoid "Wframe-larger-than=1024" warning. */
-static noinline_for_stack struct sw_flow_actions *get_flow_actions(struct net *net,
+static struct sw_flow_actions *get_flow_actions(struct net *net,
 						const struct nlattr *a,
 						const struct sw_flow_key *key,
 						const struct sw_flow_mask *mask,
@@ -1084,13 +1081,12 @@ static noinline_for_stack struct sw_flow_actions *get_flow_actions(struct net *n
  * we should not to return match object with dangling reference
  * to mask.
  * */
-static noinline_for_stack int
-ovs_nla_init_match_and_action(struct net *net,
-			      struct sw_flow_match *match,
-			      struct sw_flow_key *key,
-			      struct nlattr **a,
-			      struct sw_flow_actions **acts,
-			      bool log)
+static int ovs_nla_init_match_and_action(struct net *net,
+					 struct sw_flow_match *match,
+					 struct sw_flow_key *key,
+					 struct nlattr **a,
+					 struct sw_flow_actions **acts,
+					 bool log)
 {
 	struct sw_flow_mask mask;
 	int error = 0;
@@ -1545,34 +1541,10 @@ static void ovs_dp_reset_user_features(struct sk_buff *skb, struct genl_info *in
 	dp->user_features = 0;
 }
 
-DEFINE_STATIC_KEY_FALSE(tc_recirc_sharing_support);
-
-static int ovs_dp_change(struct datapath *dp, struct nlattr *a[])
+static void ovs_dp_change(struct datapath *dp, struct nlattr *a[])
 {
-	u32 user_features = 0;
-
-	if (a[OVS_DP_ATTR_USER_FEATURES]) {
-		user_features = nla_get_u32(a[OVS_DP_ATTR_USER_FEATURES]);
-
-		if (user_features & ~(OVS_DP_F_VPORT_PIDS |
-				      OVS_DP_F_UNALIGNED |
-				      OVS_DP_F_TC_RECIRC_SHARING))
-			return -EOPNOTSUPP;
-
-#if !IS_ENABLED(CONFIG_NET_TC_SKB_EXT)
-		if (user_features & OVS_DP_F_TC_RECIRC_SHARING)
-			return -EOPNOTSUPP;
-#endif
-	}
-
-	dp->user_features = user_features;
-
-	if (dp->user_features & OVS_DP_F_TC_RECIRC_SHARING)
-		static_branch_enable(&tc_recirc_sharing_support);
-	else
-		static_branch_disable(&tc_recirc_sharing_support);
-
-	return 0;
+	if (a[OVS_DP_ATTR_USER_FEATURES])
+		dp->user_features = nla_get_u32(a[OVS_DP_ATTR_USER_FEATURES]);
 }
 
 static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
@@ -1634,9 +1606,7 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	parms.port_no = OVSP_LOCAL;
 	parms.upcall_portids = a[OVS_DP_ATTR_UPCALL_PID];
 
-	err = ovs_dp_change(dp, a);
-	if (err)
-		goto err_destroy_meters;
+	ovs_dp_change(dp, a);
 
 	/* So far only local changes have been made, now need the lock. */
 	ovs_lock();
@@ -1762,9 +1732,7 @@ static int ovs_dp_cmd_set(struct sk_buff *skb, struct genl_info *info)
 	if (IS_ERR(dp))
 		goto err_unlock_free;
 
-	err = ovs_dp_change(dp, info->attrs);
-	if (err)
-		goto err_unlock_free;
+	ovs_dp_change(dp, info->attrs);
 
 	err = ovs_dp_cmd_fill_info(dp, reply, info->snd_portid,
 				   info->snd_seq, 0, OVS_DP_CMD_SET);
@@ -2294,7 +2262,7 @@ static const struct nla_policy vport_policy[OVS_VPORT_ATTR_MAX + 1] = {
 	[OVS_VPORT_ATTR_STATS] = { .len = sizeof(struct ovs_vport_stats) },
 	[OVS_VPORT_ATTR_PORT_NO] = { .type = NLA_U32 },
 	[OVS_VPORT_ATTR_TYPE] = { .type = NLA_U32 },
-	[OVS_VPORT_ATTR_UPCALL_PID] = { .type = NLA_UNSPEC },
+	[OVS_VPORT_ATTR_UPCALL_PID] = { .type = NLA_U32 },
 	[OVS_VPORT_ATTR_OPTIONS] = { .type = NLA_NESTED },
 	[OVS_VPORT_ATTR_IFINDEX] = { .type = NLA_U32 },
 	[OVS_VPORT_ATTR_NETNSID] = { .type = NLA_S32 },

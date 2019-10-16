@@ -487,8 +487,10 @@ xfs_da3_split(
 	ASSERT(state->path.active == 0);
 	oldblk = &state->path.blk[0];
 	error = xfs_da3_root_split(state, oldblk, addblk);
-	if (error)
-		goto out;
+	if (error) {
+		addblk->bp = NULL;
+		return error;	/* GROT: dir is inconsistent */
+	}
 
 	/*
 	 * Update pointers to the node which used to be block 0 and just got
@@ -503,10 +505,7 @@ xfs_da3_split(
 	 */
 	node = oldblk->bp->b_addr;
 	if (node->hdr.info.forw) {
-		if (be32_to_cpu(node->hdr.info.forw) != addblk->blkno) {
-			error = -EFSCORRUPTED;
-			goto out;
-		}
+		ASSERT(be32_to_cpu(node->hdr.info.forw) == addblk->blkno);
 		node = addblk->bp->b_addr;
 		node->hdr.info.back = cpu_to_be32(oldblk->blkno);
 		xfs_trans_log_buf(state->args->trans, addblk->bp,
@@ -515,19 +514,15 @@ xfs_da3_split(
 	}
 	node = oldblk->bp->b_addr;
 	if (node->hdr.info.back) {
-		if (be32_to_cpu(node->hdr.info.back) != addblk->blkno) {
-			error = -EFSCORRUPTED;
-			goto out;
-		}
+		ASSERT(be32_to_cpu(node->hdr.info.back) == addblk->blkno);
 		node = addblk->bp->b_addr;
 		node->hdr.info.forw = cpu_to_be32(oldblk->blkno);
 		xfs_trans_log_buf(state->args->trans, addblk->bp,
 				  XFS_DA_LOGRANGE(node, &node->hdr.info,
 				  sizeof(node->hdr.info)));
 	}
-out:
 	addblk->bp = NULL;
-	return error;
+	return 0;
 }
 
 /*
@@ -2098,7 +2093,7 @@ xfs_da_grow_inode_int(
 		 * If we didn't get it and the block might work if fragmented,
 		 * try without the CONTIG flag.  Loop until we get it all.
 		 */
-		mapp = kmem_alloc(sizeof(*mapp) * count, 0);
+		mapp = kmem_alloc(sizeof(*mapp) * count, KM_SLEEP);
 		for (b = *bno, mapi = 0; b < *bno + count; ) {
 			nmap = min(XFS_BMAP_MAX_NMAP, count);
 			c = (int)(*bno + count - b);
@@ -2480,7 +2475,7 @@ xfs_buf_map_from_irec(
 
 	if (nirecs > 1) {
 		map = kmem_zalloc(nirecs * sizeof(struct xfs_buf_map),
-				  KM_NOFS);
+				  KM_SLEEP | KM_NOFS);
 		if (!map)
 			return -ENOMEM;
 		*mapp = map;
@@ -2539,7 +2534,7 @@ xfs_dabuf_map(
 		 */
 		if (nfsb != 1)
 			irecs = kmem_zalloc(sizeof(irec) * nfsb,
-					    KM_NOFS);
+					    KM_SLEEP | KM_NOFS);
 
 		nirecs = nfsb;
 		error = xfs_bmapi_read(dp, (xfs_fileoff_t)bno, nfsb, irecs,

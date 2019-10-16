@@ -14,7 +14,7 @@
 #include <sys/mman.h>
 #include <linux/stringify.h>
 
-#include "build-id.h"
+#include "util.h"
 #include "event.h"
 #include "debug.h"
 #include "evlist.h"
@@ -26,6 +26,7 @@
 #include "jit.h"
 #include "jitdump.h"
 #include "genelf.h"
+#include "../builtin.h"
 
 #include <linux/ctype.h>
 #include <linux/zalloc.h>
@@ -117,13 +118,13 @@ jit_close(struct jit_buf_desc *jd)
 static int
 jit_validate_events(struct perf_session *session)
 {
-	struct evsel *evsel;
+	struct perf_evsel *evsel;
 
 	/*
 	 * check that all events use CLOCK_MONOTONIC
 	 */
 	evlist__for_each_entry(session->evlist, evsel) {
-		if (evsel->core.attr.use_clockid == 0 || evsel->core.attr.clockid != CLOCK_MONOTONIC)
+		if (evsel->attr.use_clockid == 0 || evsel->attr.clockid != CLOCK_MONOTONIC)
 			return -1;
 	}
 	return 0;
@@ -395,7 +396,7 @@ static int jit_repipe_code_load(struct jit_buf_desc *jd, union jr_entry *jr)
 	size_t size;
 	u16 idr_size;
 	const char *sym;
-	uint64_t count;
+	uint32_t count;
 	int ret, csize, usize;
 	pid_t pid, tid;
 	struct {
@@ -418,7 +419,7 @@ static int jit_repipe_code_load(struct jit_buf_desc *jd, union jr_entry *jr)
 		return -1;
 
 	filename = event->mmap2.filename;
-	size = snprintf(filename, PATH_MAX, "%s/jitted-%d-%" PRIu64 ".so",
+	size = snprintf(filename, PATH_MAX, "%s/jitted-%d-%u.so",
 			jd->dir,
 			pid,
 			count);
@@ -529,7 +530,7 @@ static int jit_repipe_code_move(struct jit_buf_desc *jd, union jr_entry *jr)
 		return -1;
 
 	filename = event->mmap2.filename;
-	size = snprintf(filename, PATH_MAX, "%s/jitted-%d-%" PRIu64 ".so",
+	size = snprintf(filename, PATH_MAX, "%s/jitted-%d-%"PRIu64,
 	         jd->dir,
 	         pid,
 		 jr->move.code_index);
@@ -757,7 +758,7 @@ jit_process(struct perf_session *session,
 	    pid_t pid,
 	    u64 *nbytes)
 {
-	struct evsel *first;
+	struct perf_evsel *first;
 	struct jit_buf_desc jd;
 	int ret;
 
@@ -777,8 +778,8 @@ jit_process(struct perf_session *session,
 	 * track sample_type to compute id_all layout
 	 * perf sets the same sample type to all events as of now
 	 */
-	first = evlist__first(session->evlist);
-	jd.sample_type = first->core.attr.sample_type;
+	first = perf_evlist__first(session->evlist);
+	jd.sample_type = first->attr.sample_type;
 
 	*nbytes = 0;
 

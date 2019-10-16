@@ -498,7 +498,7 @@
 	phy-supply = <&ldousb_reg>;
 };
 
-&gpio7_target {
+&gpio7 {
 	ti,no-reset-on-init;
 	ti,no-idle-on-init;
 };

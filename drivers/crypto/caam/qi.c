@@ -163,10 +163,7 @@ static void caam_fq_ern_cb(struct qman_portal *qm, struct qman_fq *fq,
 	dma_unmap_single(drv_req->drv_ctx->qidev, qm_fd_addr(fd),
 			 sizeof(drv_req->fd_sgt), DMA_BIDIRECTIONAL);
 
-	if (fd->status)
-		drv_req->cbk(drv_req, be32_to_cpu(fd->status));
-	else
-		drv_req->cbk(drv_req, JRSTA_SSRC_QI);
+	drv_req->cbk(drv_req, -EIO);
 }
 
 static struct qman_fq *create_caam_req_fq(struct device *qidev,
@@ -577,9 +574,8 @@ static enum qman_cb_dqrr_result caam_rsp_fq_dqrr_cb(struct qman_portal *p,
 
 		if (ssrc != JRSTA_SSRC_CCB_ERROR ||
 		    err_id != JRSTA_CCBERR_ERRID_ICVCHK)
-			dev_err_ratelimited(qidev,
-					    "Error: %#x in CAAM response FD\n",
-					    status);
+			dev_err(qidev, "Error: %#x in CAAM response FD\n",
+				status);
 	}
 
 	if (unlikely(qm_fd_get_format(fd) != qm_fd_compound)) {

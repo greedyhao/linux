@@ -486,6 +486,7 @@ initbuferror:
 	}
 
 	if (precvpriv->pallocated_recv_buf) {
+		n = NR_RECVBUFF * sizeof(struct recv_buf) + 4;
 		kfree(precvpriv->pallocated_recv_buf);
 		precvpriv->pallocated_recv_buf = NULL;
 	}
@@ -502,7 +503,7 @@ exit:
  */
 void rtl8723bs_free_recv_priv(struct adapter *padapter)
 {
-	u32 i;
+	u32 i, n;
 	struct recv_priv *precvpriv;
 	struct recv_buf *precvbuf;
 
@@ -514,8 +515,9 @@ void rtl8723bs_free_recv_priv(struct adapter *padapter)
 	/* 3 2. free all recv buffers */
 	precvbuf = (struct recv_buf *)precvpriv->precv_buf;
 	if (precvbuf) {
+		n = NR_RECVBUFF;
 		precvpriv->free_recv_buf_queue_cnt = 0;
-		for (i = 0; i < NR_RECVBUFF; i++) {
+		for (i = 0; i < n ; i++) {
 			list_del_init(&precvbuf->list);
 			rtw_os_recvbuf_resource_free(padapter, precvbuf);
 			precvbuf++;
@@ -524,6 +526,7 @@ void rtl8723bs_free_recv_priv(struct adapter *padapter)
 	}
 
 	if (precvpriv->pallocated_recv_buf) {
+		n = NR_RECVBUFF * sizeof(struct recv_buf) + 4;
 		kfree(precvpriv->pallocated_recv_buf);
 		precvpriv->pallocated_recv_buf = NULL;
 	}

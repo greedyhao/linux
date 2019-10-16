@@ -151,7 +151,7 @@ struct dentry_operations {
 
 /*
  * Locking rules for dentry_operations callbacks are to be found in
- * Documentation/filesystems/locking.rst. Keep it updated!
+ * Documentation/filesystems/Locking. Keep it updated!
  *
  * FUrther descriptions are found in Documentation/filesystems/vfs.rst.
  * Keep it updated too!
@@ -291,6 +291,7 @@ static inline unsigned d_count(const struct dentry *dentry)
  */
 extern __printf(4, 5)
 char *dynamic_dname(struct dentry *, char *, int, const char *, ...);
+extern char *simple_dname(struct dentry *, char *, int);
 
 extern char *__d_path(const struct path *, const struct path *, char *, int);
 extern char *d_absolute_path(const struct path *, char *, int);

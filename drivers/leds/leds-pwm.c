@@ -65,6 +65,12 @@ static int led_pwm_set(struct led_classdev *led_cdev,
 	return 0;
 }
 
+static inline size_t sizeof_pwm_leds_priv(int num_leds)
+{
+	return sizeof(struct led_pwm_priv) +
+		      (sizeof(struct led_pwm_data) * num_leds);
+}
+
 static int led_pwm_add(struct device *dev, struct led_pwm_priv *priv,
 		       struct led_pwm *led, struct fwnode_handle *fwnode)
 {
@@ -105,7 +111,8 @@ static int led_pwm_add(struct device *dev, struct led_pwm_priv *priv,
 	if (!led_data->period && (led->pwm_period_ns > 0))
 		led_data->period = led->pwm_period_ns;
 
-	ret = devm_led_classdev_register(dev, &led_data->cdev);
+	ret = devm_of_led_classdev_register(dev, to_of_node(fwnode),
+					    &led_data->cdev);
 	if (ret == 0) {
 		priv->num_leds++;
 		led_pwm_set(&led_data->cdev, led_data->cdev.brightness);
@@ -168,7 +175,7 @@ static int led_pwm_probe(struct platform_device *pdev)
 	if (!count)
 		return -EINVAL;
 
-	priv = devm_kzalloc(&pdev->dev, struct_size(priv, leds, count),
+	priv = devm_kzalloc(&pdev->dev, sizeof_pwm_leds_priv(count),
 			    GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;

@@ -244,7 +244,10 @@ static int lm3697_probe_dt(struct lm3697 *priv)
 		led->lmu_data.lsb_brightness_reg = LM3697_CTRL_A_BRT_LSB +
 						   led->control_bank * 2;
 
-		led->num_leds = fwnode_property_count_u32(child, "led-sources");
+		led->num_leds = fwnode_property_read_u32_array(child,
+						       "led-sources",
+						       NULL, 0);
+
 		if (led->num_leds > LM3697_MAX_LED_STRINGS) {
 			dev_err(&priv->client->dev, "To many LED strings defined\n");
 			continue;

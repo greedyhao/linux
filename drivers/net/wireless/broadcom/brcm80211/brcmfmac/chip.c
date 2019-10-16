@@ -696,10 +696,8 @@ static u32 brcmf_chip_tcm_rambase(struct brcmf_chip_priv *ci)
 	return 0;
 }
 
-int brcmf_chip_get_raminfo(struct brcmf_chip *pub)
+static int brcmf_chip_get_raminfo(struct brcmf_chip_priv *ci)
 {
-	struct brcmf_chip_priv *ci = container_of(pub, struct brcmf_chip_priv,
-						  pub);
 	struct brcmf_core_priv *mem_core;
 	struct brcmf_core *mem;
 
@@ -981,7 +979,7 @@ static int brcmf_chip_recognition(struct brcmf_chip_priv *ci)
 		brcmf_chip_set_passive(&ci->pub);
 	}
 
-	return brcmf_chip_get_raminfo(&ci->pub);
+	return brcmf_chip_get_raminfo(ci);
 }
 
 static void brcmf_chip_disable_arm(struct brcmf_chip_priv *chip, u16 id)

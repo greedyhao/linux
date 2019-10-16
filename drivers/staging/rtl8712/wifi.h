@@ -300,6 +300,7 @@ static inline unsigned char *get_da(unsigned char *pframe)
 	return da;
 }
 
+
 static inline unsigned char *get_sa(unsigned char *pframe)
 {
 	unsigned char	*sa;
@@ -345,6 +346,8 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 	return sa;
 }
 
+
+
 /*-----------------------------------------------------------------------------
  *		Below is for the security related definition
  *-----------------------------------------------------------------------------
@@ -389,6 +392,7 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 
 #define	_RESERVED47_		47
 
+
 /* ---------------------------------------------------------------------------
  *			Below is the fixed elements...
  * ---------------------------------------------------------------------------
@@ -432,6 +436,7 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 #define _WMM_IE_Length_				7  /* for WMM STA */
 #define _WMM_Para_Element_Length_		24
 
+
 /*-----------------------------------------------------------------------------
  *			Below is the definition for 802.11n
  *------------------------------------------------------------------------------
@@ -451,6 +456,7 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 #define GetOrderBit(pbuf)	(((*(__le16 *)(pbuf)) & \
 				le16_to_cpu(_ORDER_)) != 0)
 
+
 /**
  * struct ieee80211_bar - HT Block Ack Request
  *
@@ -469,6 +475,7 @@ struct ieee80211_bar {
 /* 802.11 BAR control masks */
 #define IEEE80211_BAR_CTRL_ACK_POLICY_NORMAL     0x0000
 #define IEEE80211_BAR_CTRL_CBMTID_COMPRESSED_BA  0x0004
+
 
 /*
  * struct ieee80211_ht_cap - HT capabilities
@@ -544,6 +551,7 @@ struct ieee80211_ht_addt_info {
  * According to IEEE802.11n spec size varies from 8K to 64K (in powers of 2)
  */
 #define IEEE80211_MIN_AMPDU_BUF 0x8
+
 
 /* Spatial Multiplexing Power Save Modes */
 #define WLAN_HT_CAP_SM_PS_STATIC		0

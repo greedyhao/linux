@@ -5,6 +5,8 @@
 #ifndef __ASM_IRQFLAGS_H
 #define __ASM_IRQFLAGS_H
 
+#ifdef __KERNEL__
+
 #include <asm/alternative.h>
 #include <asm/ptrace.h>
 #include <asm/sysreg.h>
@@ -126,4 +128,5 @@ static inline void arch_local_irq_restore(unsigned long flags)
 		: "memory");
 }
 
-#endif /* __ASM_IRQFLAGS_H */
+#endif
+#endif

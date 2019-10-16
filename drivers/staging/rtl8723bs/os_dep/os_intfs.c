@@ -239,6 +239,9 @@ static void loadparam(struct adapter *padapter, _nic_hdl pnetdev)
 	registry_par->channel = (u8)rtw_channel;
 	registry_par->wireless_mode = (u8)rtw_wireless_mode;
 
+	if (registry_par->channel > 14)
+		registry_par->channel = 1;
+
 	registry_par->vrtl_carrier_sense = (u8)rtw_vrtl_carrier_sense ;
 	registry_par->vcs_type = (u8)rtw_vcs_type;
 	registry_par->rts_thresh = (u16)rtw_rts_thresh;
@@ -445,6 +448,12 @@ static int rtw_ndev_notifier_call(struct notifier_block *nb, unsigned long state
 
 	DBG_871X_LEVEL(_drv_info_, FUNC_NDEV_FMT " state:%lu\n", FUNC_NDEV_ARG(dev), state);
 
+	switch (state) {
+	case NETDEV_CHANGENAME:
+		rtw_adapter_proc_replace(dev);
+		break;
+	}
+
 	return NOTIFY_DONE;
 }
 
@@ -469,6 +478,7 @@ static int rtw_ndev_init(struct net_device *dev)
 
 	DBG_871X_LEVEL(_drv_always_, FUNC_ADPT_FMT "\n", FUNC_ADPT_ARG(adapter));
 	strncpy(adapter->old_ifname, dev->name, IFNAMSIZ);
+	rtw_adapter_proc_init(dev);
 
 	return 0;
 }
@@ -478,6 +488,7 @@ static void rtw_ndev_uninit(struct net_device *dev)
 	struct adapter *adapter = rtw_netdev_priv(dev);
 
 	DBG_871X_LEVEL(_drv_always_, FUNC_ADPT_FMT "\n", FUNC_ADPT_ARG(adapter));
+	rtw_adapter_proc_deinit(dev);
 }
 
 static const struct net_device_ops rtw_netdev_ops = {
@@ -757,7 +768,11 @@ u8 rtw_init_drv_sw(struct adapter *padapter)
 		goto exit;
 	}
 
-	init_mlme_ext_priv(padapter);
+	if (init_mlme_ext_priv(padapter) == _FAIL) {
+		RT_TRACE(_module_os_intfs_c_, _drv_err_, ("\n Can't init mlme_ext_priv\n"));
+		ret8 = _FAIL;
+		goto exit;
+	}
 
 	if (_rtw_init_xmit_priv(&padapter->xmitpriv, padapter) == _FAIL) {
 		DBG_871X("Can't _rtw_init_xmit_priv\n");
@@ -1346,12 +1361,13 @@ void rtw_suspend_wow(struct adapter *padapter)
 #endif /* ifdef CONFIG_WOWLAN */
 
 #ifdef CONFIG_AP_WOWLAN
-void rtw_suspend_ap_wow(struct adapter *padapter)
+int rtw_suspend_ap_wow(struct adapter *padapter)
 {
 	u8 ch, bw, offset;
 	struct net_device *pnetdev = padapter->pnetdev;
 	struct pwrctrl_priv *pwrpriv = adapter_to_pwrctl(padapter);
 	struct wowlan_ioctl_param poidparam;
+	int ret = _SUCCESS;
 
 	DBG_871X("==> " FUNC_ADPT_FMT " entry....\n", FUNC_ADPT_ARG(padapter));
 
@@ -1393,6 +1409,7 @@ void rtw_suspend_ap_wow(struct adapter *padapter)
 	rtw_set_ps_mode(padapter, PS_MODE_MIN, 0, 0, "AP-WOWLAN");
 
 	DBG_871X("<== " FUNC_ADPT_FMT " exit....\n", FUNC_ADPT_ARG(padapter));
+	return ret;
 }
 #endif /* ifdef CONFIG_AP_WOWLAN */
 

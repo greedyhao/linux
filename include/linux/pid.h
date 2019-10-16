@@ -4,7 +4,6 @@
 
 #include <linux/rculist.h>
 #include <linux/wait.h>
-#include <linux/refcount.h>
 
 enum pid_type
 {
@@ -58,7 +57,7 @@ struct upid {
 
 struct pid
 {
-	refcount_t count;
+	atomic_t count;
 	unsigned int level;
 	/* lists of tasks that use this pid */
 	struct hlist_head tasks[PIDTYPE_MAX];
@@ -72,14 +71,10 @@ extern struct pid init_struct_pid;
 
 extern const struct file_operations pidfd_fops;
 
-struct file;
-
-extern struct pid *pidfd_pid(const struct file *file);
-
 static inline struct pid *get_pid(struct pid *pid)
 {
 	if (pid)
-		refcount_inc(&pid->count);
+		atomic_inc(&pid->count);
 	return pid;
 }
 

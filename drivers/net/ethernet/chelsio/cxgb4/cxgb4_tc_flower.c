@@ -67,8 +67,7 @@ static struct ch_tc_pedit_fields pedits[] = {
 static struct ch_tc_flower_entry *allocate_flower_entry(void)
 {
 	struct ch_tc_flower_entry *new = kzalloc(sizeof(*new), GFP_KERNEL);
-	if (new)
-		spin_lock_init(&new->lock);
+	spin_lock_init(&new->lock);
 	return new;
 }
 

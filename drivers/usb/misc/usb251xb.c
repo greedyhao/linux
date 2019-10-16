@@ -375,8 +375,7 @@ out_err:
 
 #ifdef CONFIG_OF
 static void usb251xb_get_ports_field(struct usb251xb *hub,
-				    const char *prop_name, u8 port_cnt,
-				    bool ds_only, u8 *fld)
+				    const char *prop_name, u8 port_cnt, u8 *fld)
 {
 	struct device *dev = hub->dev;
 	struct property *prop;
@@ -384,7 +383,7 @@ static void usb251xb_get_ports_field(struct usb251xb *hub,
 	u32 port;
 
 	of_property_for_each_u32(dev->of_node, prop_name, prop, p, port) {
-		if ((port >= ds_only ? 1 : 0) && (port <= port_cnt))
+		if ((port >= 1) && (port <= port_cnt))
 			*fld |= BIT(port);
 		else
 			dev_warn(dev, "port %u doesn't exist\n", port);
@@ -502,15 +501,15 @@ static int usb251xb_get_ofdata(struct usb251xb *hub,
 
 	hub->non_rem_dev = USB251XB_DEF_NON_REMOVABLE_DEVICES;
 	usb251xb_get_ports_field(hub, "non-removable-ports", data->port_cnt,
-				 true, &hub->non_rem_dev);
+				 &hub->non_rem_dev);
 
 	hub->port_disable_sp = USB251XB_DEF_PORT_DISABLE_SELF;
 	usb251xb_get_ports_field(hub, "sp-disabled-ports", data->port_cnt,
-				 true, &hub->port_disable_sp);
+				 &hub->port_disable_sp);
 
 	hub->port_disable_bp = USB251XB_DEF_PORT_DISABLE_BUS;
 	usb251xb_get_ports_field(hub, "bp-disabled-ports", data->port_cnt,
-				 true, &hub->port_disable_bp);
+				 &hub->port_disable_bp);
 
 	hub->max_power_sp = USB251XB_DEF_MAX_POWER_SELF;
 	if (!of_property_read_u32(np, "sp-max-total-current-microamp",
@@ -574,7 +573,9 @@ static int usb251xb_get_ofdata(struct usb251xb *hub,
 	 */
 	hub->port_swap = USB251XB_DEF_PORT_SWAP;
 	usb251xb_get_ports_field(hub, "swap-dx-lanes", data->port_cnt,
-				 false, &hub->port_swap);
+				 &hub->port_swap);
+	if (of_get_property(np, "swap-us-lanes", NULL))
+		hub->port_swap |= BIT(0);
 
 	/* The following parameters are currently not exposed to devicetree, but
 	 * may be as soon as needed.

@@ -639,7 +639,6 @@ struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
 					 IEEE80211_RADIOTAP_VHT_KNOWN_BANDWIDTH;
 	local->hw.uapsd_queues = IEEE80211_DEFAULT_UAPSD_QUEUES;
 	local->hw.uapsd_max_sp_len = IEEE80211_DEFAULT_MAX_SP_LEN;
-	local->hw.max_mtu = IEEE80211_MAX_DATA_LEN;
 	local->user_power_level = IEEE80211_UNSET_POWER_LEVEL;
 	wiphy->ht_capa_mod_mask = &mac80211_ht_capa_mod_mask;
 	wiphy->vht_capa_mod_mask = &mac80211_vht_capa_mod_mask;
@@ -1049,15 +1048,21 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		}
 	}
 
-	/* Mac80211 and therefore all drivers using SW crypto only
-	 * are able to handle PTK rekeys and Extended Key ID.
+	/* Enable Extended Key IDs when driver allowed it, or when it
+	 * supports neither HW crypto nor A-MPDUs
 	 */
-	if (!local->ops->set_key) {
-		wiphy_ext_feature_set(local->hw.wiphy,
-				      NL80211_EXT_FEATURE_CAN_REPLACE_PTK0);
+	if ((!local->ops->set_key &&
+	     !ieee80211_hw_check(hw, AMPDU_AGGREGATION)) ||
+	    ieee80211_hw_check(&local->hw, EXT_KEY_ID_NATIVE))
 		wiphy_ext_feature_set(local->hw.wiphy,
 				      NL80211_EXT_FEATURE_EXT_KEY_ID);
-	}
+
+	/* Mac80211 and therefore all cards only using SW crypto are able to
+	 * handle PTK rekeys correctly
+	 */
+	if (!local->ops->set_key)
+		wiphy_ext_feature_set(local->hw.wiphy,
+				      NL80211_EXT_FEATURE_CAN_REPLACE_PTK0);
 
 	/*
 	 * Calculate scan IE length -- we need this to alloc

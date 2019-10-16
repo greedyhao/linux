@@ -414,7 +414,6 @@ int cifs_get_inode_info_unix(struct inode **pinode,
 		/* if uniqueid is different, return error */
 		if (unlikely(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_SERVER_INUM &&
 		    CIFS_I(*pinode)->uniqueid != fattr.cf_uniqueid)) {
-			CIFS_I(*pinode)->time = 0; /* force reval */
 			rc = -ESTALE;
 			goto cgiiu_exit;
 		}
@@ -422,7 +421,6 @@ int cifs_get_inode_info_unix(struct inode **pinode,
 		/* if filetype is different, return error */
 		if (unlikely(((*pinode)->i_mode & S_IFMT) !=
 		    (fattr.cf_mode & S_IFMT))) {
-			CIFS_I(*pinode)->time = 0; /* force reval */
 			rc = -ESTALE;
 			goto cgiiu_exit;
 		}
@@ -894,24 +892,17 @@ cifs_get_inode_info(struct inode **inode, const char *full_path,
 			cifs_dbg(FYI, "cifs_sfu_type failed: %d\n", tmprc);
 	}
 
+#ifdef CONFIG_CIFS_ACL
 	/* fill in 0777 bits from ACL */
-	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MODE_FROM_SID) {
-		rc = cifs_acl_to_fattr(cifs_sb, &fattr, *inode, true,
-				       full_path, fid);
-		if (rc) {
-			cifs_dbg(FYI, "%s: Get mode from SID failed. rc=%d\n",
-				__func__, rc);
-			goto cgii_exit;
-		}
-	} else if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) {
-		rc = cifs_acl_to_fattr(cifs_sb, &fattr, *inode, false,
-				       full_path, fid);
+	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) {
+		rc = cifs_acl_to_fattr(cifs_sb, &fattr, *inode, full_path, fid);
 		if (rc) {
 			cifs_dbg(FYI, "%s: Getting ACL failed with error: %d\n",
 				 __func__, rc);
 			goto cgii_exit;
 		}
 	}
+#endif /* CONFIG_CIFS_ACL */
 
 	/* fill in remaining high mode bits e.g. SUID, VTX */
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_UNX_EMUL)
@@ -935,7 +926,6 @@ cifs_get_inode_info(struct inode **inode, const char *full_path,
 		/* if uniqueid is different, return error */
 		if (unlikely(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_SERVER_INUM &&
 		    CIFS_I(*inode)->uniqueid != fattr.cf_uniqueid)) {
-			CIFS_I(*inode)->time = 0; /* force reval */
 			rc = -ESTALE;
 			goto cgii_exit;
 		}
@@ -943,7 +933,6 @@ cifs_get_inode_info(struct inode **inode, const char *full_path,
 		/* if filetype is different, return error */
 		if (unlikely(((*inode)->i_mode & S_IFMT) !=
 		    (fattr.cf_mode & S_IFMT))) {
-			CIFS_I(*inode)->time = 0; /* force reval */
 			rc = -ESTALE;
 			goto cgii_exit;
 		}
@@ -1626,14 +1615,13 @@ int cifs_mkdir(struct inode *inode, struct dentry *direntry, umode_t mode)
 	}
 
 	/* BB add setting the equivalent of mode via CreateX w/ACLs */
-	rc = server->ops->mkdir(xid, inode, mode, tcon, full_path, cifs_sb);
+	rc = server->ops->mkdir(xid, tcon, full_path, cifs_sb);
 	if (rc) {
 		cifs_dbg(FYI, "cifs_mkdir returned 0x%x\n", rc);
 		d_drop(direntry);
 		goto mkdir_out;
 	}
 
-	/* TODO: skip this for smb2/smb3 */
 	rc = cifs_mkdir_qinfo(inode, direntry, mode, full_path, cifs_sb, tcon,
 			      xid);
 mkdir_out:
@@ -2420,8 +2408,6 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 	struct inode *inode = d_inode(direntry);
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
 	struct cifsInodeInfo *cifsInode = CIFS_I(inode);
-	struct cifsFileInfo *wfile;
-	struct cifs_tcon *tcon;
 	char *full_path = NULL;
 	int rc = -EACCES;
 	__u32 dosattr = 0;
@@ -2429,7 +2415,7 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 
 	xid = get_xid();
 
-	cifs_dbg(FYI, "setattr on file %pd attrs->ia_valid 0x%x\n",
+	cifs_dbg(FYI, "setattr on file %pd attrs->iavalid 0x%x\n",
 		 direntry, attrs->ia_valid);
 
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_PERM)
@@ -2468,20 +2454,6 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 	mapping_set_error(inode->i_mapping, rc);
 	rc = 0;
 
-	if (attrs->ia_valid & ATTR_MTIME) {
-		rc = cifs_get_writable_file(cifsInode, false, &wfile);
-		if (!rc) {
-			tcon = tlink_tcon(wfile->tlink);
-			rc = tcon->ses->server->ops->flush(xid, tcon, &wfile->fid);
-			cifsFileInfo_put(wfile);
-			if (rc)
-				return rc;
-		} else if (rc != -EBADF)
-			return rc;
-		else
-			rc = 0;
-	}
-
 	if (attrs->ia_valid & ATTR_SIZE) {
 		rc = cifs_set_file_size(inode, attrs, xid, full_path);
 		if (rc != 0)
@@ -2494,8 +2466,8 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 	if (attrs->ia_valid & ATTR_GID)
 		gid = attrs->ia_gid;
 
-	if ((cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) ||
-	    (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MODE_FROM_SID)) {
+#ifdef CONFIG_CIFS_ACL
+	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) {
 		if (uid_valid(uid) || gid_valid(gid)) {
 			rc = id_mode_to_cifs_acl(inode, full_path, NO_CHANGE_64,
 							uid, gid);
@@ -2506,6 +2478,7 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 			}
 		}
 	} else
+#endif /* CONFIG_CIFS_ACL */
 	if (!(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_SET_UID))
 		attrs->ia_valid &= ~(ATTR_UID | ATTR_GID);
 
@@ -2516,8 +2489,8 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 	if (attrs->ia_valid & ATTR_MODE) {
 		mode = attrs->ia_mode;
 		rc = 0;
-		if ((cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) ||
-		    (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MODE_FROM_SID)) {
+#ifdef CONFIG_CIFS_ACL
+		if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) {
 			rc = id_mode_to_cifs_acl(inode, full_path, mode,
 						INVALID_UID, INVALID_GID);
 			if (rc) {
@@ -2526,6 +2499,7 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 				goto cifs_setattr_exit;
 			}
 		} else
+#endif /* CONFIG_CIFS_ACL */
 		if (((mode & S_IWUGO) == 0) &&
 		    (cifsInode->cifsAttrs & ATTR_READONLY) == 0) {
 

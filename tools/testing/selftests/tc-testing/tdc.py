@@ -356,14 +356,12 @@ def test_runner(pm, args, filtered_tests):
     time.sleep(2)
     for tidx in testlist:
         if "flower" in tidx["category"] and args.device == None:
-            errmsg = "Tests using the DEV2 variable must define the name of a "
-            errmsg += "physical NIC with the -d option when running tdc.\n"
-            errmsg += "Test has been skipped."
             if args.verbose > 1:
-                print(errmsg)
+                print('Not executing test {} {} because DEV2 not defined'.
+                      format(tidx['id'], tidx['name']))
             res = TestResult(tidx['id'], tidx['name'])
             res.set_result(ResultState.skip)
-            res.set_errormsg(errmsg)
+            res.set_errormsg('Not executed because DEV2 is not defined')
             tsr.add_resultdata(res)
             continue
         try:
@@ -501,9 +499,7 @@ def set_args(parser):
         choices=['none', 'xunit', 'tap'],
         help='Specify the format for test results. (Default: TAP)')
     parser.add_argument('-d', '--device',
-                        help='Execute test cases that use a physical device, ' +
-                        'where DEVICE is its name. (If not defined, tests ' +
-                        'that require a physical device will be skipped)')
+                        help='Execute the test case in flower category')
     parser.add_argument(
         '-P', '--pause', action='store_true',
         help='Pause execution just before post-suite stage')

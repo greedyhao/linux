@@ -21,21 +21,16 @@
  */
 
 #include <linux/export.h>
-#include <linux/uaccess.h>
-
+#include <drm/drmP.h>
+#include <drm/drm_auth.h>
+#include <drm/drm_framebuffer.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_uapi.h>
-#include <drm/drm_auth.h>
-#include <drm/drm_debugfs.h>
-#include <drm/drm_drv.h>
-#include <drm/drm_file.h>
-#include <drm/drm_fourcc.h>
-#include <drm/drm_framebuffer.h>
 #include <drm/drm_print.h>
 #include <drm/drm_util.h>
 
-#include "drm_crtc_internal.h"
 #include "drm_internal.h"
+#include "drm_crtc_internal.h"
 
 /**
  * DOC: overview
@@ -835,7 +830,7 @@ static int atomic_remove_fb(struct drm_framebuffer *fb)
 	struct drm_device *dev = fb->dev;
 	struct drm_atomic_state *state;
 	struct drm_plane *plane;
-	struct drm_connector *conn __maybe_unused;
+	struct drm_connector *conn;
 	struct drm_connector_state *conn_state;
 	int i, ret;
 	unsigned plane_mask;

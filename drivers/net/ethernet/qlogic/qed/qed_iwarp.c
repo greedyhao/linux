@@ -382,7 +382,7 @@ qed_iwarp2roce_state(enum qed_iwarp_qp_state state)
 	}
 }
 
-static const char * const iwarp_state_names[] = {
+const static char *iwarp_state_names[] = {
 	"IDLE",
 	"RTS",
 	"TERMINATE",

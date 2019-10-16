@@ -301,8 +301,10 @@ static int bcm_kona_wdt_probe(struct platform_device *pdev)
 	watchdog_stop_on_reboot(&bcm_kona_wdt_wdd);
 	watchdog_stop_on_unregister(&bcm_kona_wdt_wdd);
 	ret = devm_watchdog_register_device(dev, &bcm_kona_wdt_wdd);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "Failed to register watchdog device");
 		return ret;
+	}
 
 	bcm_kona_wdt_debug_init(pdev);
 	dev_dbg(dev, "Broadcom Kona Watchdog Timer");

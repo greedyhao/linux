@@ -18,7 +18,6 @@
 #include <linux/mm.h>
 #include <linux/mount.h>
 #include <linux/magic.h>
-#include <linux/pseudo_fs.h>
 
 /*
  * Balloon device works in 4K page units.  So each page is pointed to by
@@ -746,14 +745,20 @@ static int virtballoon_migratepage(struct balloon_dev_info *vb_dev_info,
 	return MIGRATEPAGE_SUCCESS;
 }
 
-static int balloon_init_fs_context(struct fs_context *fc)
+static struct dentry *balloon_mount(struct file_system_type *fs_type,
+		int flags, const char *dev_name, void *data)
 {
-	return init_pseudo(fc, BALLOON_KVM_MAGIC) ? 0 : -ENOMEM;
+	static const struct dentry_operations ops = {
+		.d_dname = simple_dname,
+	};
+
+	return mount_pseudo(fs_type, "balloon-kvm:", NULL, &ops,
+				BALLOON_KVM_MAGIC);
 }
 
 static struct file_system_type balloon_fs = {
 	.name           = "balloon-kvm",
-	.init_fs_context = balloon_init_fs_context,
+	.mount          = balloon_mount,
 	.kill_sb        = kill_anon_super,
 };
 

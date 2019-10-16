@@ -7,11 +7,9 @@
  */
 
 #include <linux/bug.h>
-#include <linux/context_tracking.h>
 #include <linux/signal.h>
 #include <linux/personality.h>
 #include <linux/kallsyms.h>
-#include <linux/kprobes.h>
 #include <linux/spinlock.h>
 #include <linux/uaccess.h>
 #include <linux/hardirq.h>
@@ -102,17 +100,18 @@ void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 		return;
 
 	if (tsk == current) {
-		start_backtrace(&frame,
-				(unsigned long)__builtin_frame_address(0),
-				(unsigned long)dump_backtrace);
+		frame.fp = (unsigned long)__builtin_frame_address(0);
+		frame.pc = (unsigned long)dump_backtrace;
 	} else {
 		/*
 		 * task blocked in __switch_to
 		 */
-		start_backtrace(&frame,
-				thread_saved_fp(tsk),
-				thread_saved_pc(tsk));
+		frame.fp = thread_saved_fp(tsk);
+		frame.pc = thread_saved_pc(tsk);
 	}
+#ifdef CONFIG_FUNCTION_GRAPH_TRACER
+	frame.graph = 0;
+#endif
 
 	printk("Call trace:\n");
 	do {
@@ -513,7 +512,7 @@ struct sys64_hook {
 	void (*handler)(unsigned int esr, struct pt_regs *regs);
 };
 
-static const struct sys64_hook sys64_hooks[] = {
+static struct sys64_hook sys64_hooks[] = {
 	{
 		.esr_mask = ESR_ELx_SYS64_ISS_EL0_CACHE_OP_MASK,
 		.esr_val = ESR_ELx_SYS64_ISS_EL0_CACHE_OP_VAL,
@@ -638,7 +637,7 @@ static void compat_cntfrq_read_handler(unsigned int esr, struct pt_regs *regs)
 	arm64_compat_skip_faulting_instruction(regs, 4);
 }
 
-static const struct sys64_hook cp15_32_hooks[] = {
+static struct sys64_hook cp15_32_hooks[] = {
 	{
 		.esr_mask = ESR_ELx_CP15_32_ISS_SYS_MASK,
 		.esr_val = ESR_ELx_CP15_32_ISS_SYS_CNTFRQ,
@@ -658,7 +657,7 @@ static void compat_cntvct_read_handler(unsigned int esr, struct pt_regs *regs)
 	arm64_compat_skip_faulting_instruction(regs, 4);
 }
 
-static const struct sys64_hook cp15_64_hooks[] = {
+static struct sys64_hook cp15_64_hooks[] = {
 	{
 		.esr_mask = ESR_ELx_CP15_64_ISS_SYS_MASK,
 		.esr_val = ESR_ELx_CP15_64_ISS_SYS_CNTVCT,
@@ -669,7 +668,7 @@ static const struct sys64_hook cp15_64_hooks[] = {
 
 asmlinkage void __exception do_cp15instr(unsigned int esr, struct pt_regs *regs)
 {
-	const struct sys64_hook *hook, *hook_base;
+	struct sys64_hook *hook, *hook_base;
 
 	if (!cp15_cond_valid(esr, regs)) {
 		/*
@@ -709,7 +708,7 @@ asmlinkage void __exception do_cp15instr(unsigned int esr, struct pt_regs *regs)
 
 asmlinkage void __exception do_sysinstr(unsigned int esr, struct pt_regs *regs)
 {
-	const struct sys64_hook *hook;
+	struct sys64_hook *hook;
 
 	for (hook = sys64_hooks; hook->handler; hook++)
 		if ((hook->esr_mask & esr) == hook->esr_val) {
@@ -735,7 +734,6 @@ static const char *esr_class_str[] = {
 	[ESR_ELx_EC_CP14_LS]		= "CP14 LDC/STC",
 	[ESR_ELx_EC_FP_ASIMD]		= "ASIMD",
 	[ESR_ELx_EC_CP10_ID]		= "CP10 MRC/VMRS",
-	[ESR_ELx_EC_PAC]		= "PAC",
 	[ESR_ELx_EC_CP14_64]		= "CP14 MCRR/MRRC",
 	[ESR_ELx_EC_ILL]		= "PSTATE.IL",
 	[ESR_ELx_EC_SVC32]		= "SVC (AArch32)",
@@ -746,7 +744,6 @@ static const char *esr_class_str[] = {
 	[ESR_ELx_EC_SMC64]		= "SMC (AArch64)",
 	[ESR_ELx_EC_SYS64]		= "MSR/MRS (AArch64)",
 	[ESR_ELx_EC_SVE]		= "SVE",
-	[ESR_ELx_EC_ERET]		= "ERET/ERETAA/ERETAB",
 	[ESR_ELx_EC_IMP_DEF]		= "EL3 IMP DEF",
 	[ESR_ELx_EC_IABT_LOW]		= "IABT (lower EL)",
 	[ESR_ELx_EC_IABT_CUR]		= "IABT (current EL)",
@@ -902,13 +899,6 @@ asmlinkage void do_serror(struct pt_regs *regs, unsigned int esr)
 	if (!was_in_nmi)
 		nmi_exit();
 }
-
-asmlinkage void enter_from_user_mode(void)
-{
-	CT_WARN_ON(ct_state() != CONTEXT_USER);
-	user_exit_irqoff();
-}
-NOKPROBE_SYMBOL(enter_from_user_mode);
 
 void __pte_error(const char *file, int line, unsigned long val)
 {

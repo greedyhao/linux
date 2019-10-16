@@ -41,7 +41,6 @@ struct phylink_link_state;
 #define DSA_TAG_PROTO_TRAILER_VALUE		11
 #define DSA_TAG_PROTO_8021Q_VALUE		12
 #define DSA_TAG_PROTO_SJA1105_VALUE		13
-#define DSA_TAG_PROTO_KSZ8795_VALUE		14
 
 enum dsa_tag_protocol {
 	DSA_TAG_PROTO_NONE		= DSA_TAG_PROTO_NONE_VALUE,
@@ -58,7 +57,6 @@ enum dsa_tag_protocol {
 	DSA_TAG_PROTO_TRAILER		= DSA_TAG_PROTO_TRAILER_VALUE,
 	DSA_TAG_PROTO_8021Q		= DSA_TAG_PROTO_8021Q_VALUE,
 	DSA_TAG_PROTO_SJA1105		= DSA_TAG_PROTO_SJA1105_VALUE,
-	DSA_TAG_PROTO_KSZ8795		= DSA_TAG_PROTO_KSZ8795_VALUE,
 };
 
 struct packet_type;
@@ -274,6 +272,9 @@ struct dsa_switch {
 	 * should be retrieved from here and not from the per-port settings.
 	 */
 	bool			vlan_filtering;
+
+	unsigned long		*bitmap;
+	unsigned long		_bitmap;
 
 	/* Dynamically allocated ports, keep last */
 	size_t num_ports;
@@ -515,8 +516,6 @@ struct dsa_switch_ops {
 				   bool ingress);
 	void	(*port_mirror_del)(struct dsa_switch *ds, int port,
 				   struct dsa_mall_mirror_tc_entry *mirror);
-	int	(*port_setup_tc)(struct dsa_switch *ds, int port,
-				 enum tc_setup_type type, void *type_data);
 
 	/*
 	 * Cross-chip operations

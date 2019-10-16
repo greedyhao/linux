@@ -16,7 +16,6 @@
 
 enum ocotp_devtype {
 	IMX8QXP,
-	IMX8QM,
 };
 
 struct ocotp_devtype_data {
@@ -37,11 +36,6 @@ struct imx_sc_msg_misc_fuse_read {
 
 static struct ocotp_devtype_data imx8qxp_data = {
 	.devtype = IMX8QXP,
-	.nregs = 800,
-};
-
-static struct ocotp_devtype_data imx8qm_data = {
-	.devtype = IMX8QM,
 	.nregs = 800,
 };
 
@@ -124,7 +118,6 @@ static struct nvmem_config imx_scu_ocotp_nvmem_config = {
 
 static const struct of_device_id imx_scu_ocotp_dt_ids[] = {
 	{ .compatible = "fsl,imx8qxp-scu-ocotp", (void *)&imx8qxp_data },
-	{ .compatible = "fsl,imx8qm-scu-ocotp", (void *)&imx8qm_data },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, imx_scu_ocotp_dt_ids);

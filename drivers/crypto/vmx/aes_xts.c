@@ -84,7 +84,7 @@ static int p8_aes_xts_crypt(struct skcipher_request *req, int enc)
 	u8 tweak[AES_BLOCK_SIZE];
 	int ret;
 
-	if (!crypto_simd_usable() || (req->cryptlen % XTS_BLOCK_SIZE) != 0) {
+	if (!crypto_simd_usable()) {
 		struct skcipher_request *subreq = skcipher_request_ctx(req);
 
 		*subreq = *req;

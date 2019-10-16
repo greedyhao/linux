@@ -26,8 +26,7 @@ struct pt_regs;
  *
  * It's only valid to call this when @task is known to be blocked.
  */
-static inline int
-syscall_get_nr(struct task_struct *task, struct pt_regs *regs)
+int syscall_get_nr(struct task_struct *task, struct pt_regs *regs)
 {
 	return regs->syscallno;
 }
@@ -48,8 +47,7 @@ syscall_get_nr(struct task_struct *task, struct pt_regs *regs)
  * system call instruction.  This may not be the same as what the
  * register state looked like at system call entry tracing.
  */
-static inline void
-syscall_rollback(struct task_struct *task, struct pt_regs *regs)
+void syscall_rollback(struct task_struct *task, struct pt_regs *regs)
 {
 	regs->uregs[0] = regs->orig_r0;
 }
@@ -64,8 +62,7 @@ syscall_rollback(struct task_struct *task, struct pt_regs *regs)
  * It's only valid to call this when @task is stopped for tracing on exit
  * from a system call, due to %TIF_SYSCALL_TRACE or %TIF_SYSCALL_AUDIT.
  */
-static inline long
-syscall_get_error(struct task_struct *task, struct pt_regs *regs)
+long syscall_get_error(struct task_struct *task, struct pt_regs *regs)
 {
 	unsigned long error = regs->uregs[0];
 	return IS_ERR_VALUE(error) ? error : 0;
@@ -82,8 +79,7 @@ syscall_get_error(struct task_struct *task, struct pt_regs *regs)
  * It's only valid to call this when @task is stopped for tracing on exit
  * from a system call, due to %TIF_SYSCALL_TRACE or %TIF_SYSCALL_AUDIT.
  */
-static inline long
-syscall_get_return_value(struct task_struct *task, struct pt_regs *regs)
+long syscall_get_return_value(struct task_struct *task, struct pt_regs *regs)
 {
 	return regs->uregs[0];
 }
@@ -103,9 +99,8 @@ syscall_get_return_value(struct task_struct *task, struct pt_regs *regs)
  * It's only valid to call this when @task is stopped for tracing on exit
  * from a system call, due to %TIF_SYSCALL_TRACE or %TIF_SYSCALL_AUDIT.
  */
-static inline void
-syscall_set_return_value(struct task_struct *task, struct pt_regs *regs,
-			 int error, long val)
+void syscall_set_return_value(struct task_struct *task, struct pt_regs *regs,
+			      int error, long val)
 {
 	regs->uregs[0] = (long)error ? error : val;
 }
@@ -123,9 +118,8 @@ syscall_set_return_value(struct task_struct *task, struct pt_regs *regs,
  * entry to a system call, due to %TIF_SYSCALL_TRACE or %TIF_SYSCALL_AUDIT.
  */
 #define SYSCALL_MAX_ARGS 6
-static inline void
-syscall_get_arguments(struct task_struct *task, struct pt_regs *regs,
-		      unsigned long *args)
+void syscall_get_arguments(struct task_struct *task, struct pt_regs *regs,
+			   unsigned long *args)
 {
 	args[0] = regs->orig_r0;
 	args++;
@@ -144,9 +138,8 @@ syscall_get_arguments(struct task_struct *task, struct pt_regs *regs,
  * It's only valid to call this when @task is stopped for tracing on
  * entry to a system call, due to %TIF_SYSCALL_TRACE or %TIF_SYSCALL_AUDIT.
  */
-static inline void
-syscall_set_arguments(struct task_struct *task, struct pt_regs *regs,
-		      const unsigned long *args)
+void syscall_set_arguments(struct task_struct *task, struct pt_regs *regs,
+			   const unsigned long *args)
 {
 	regs->orig_r0 = args[0];
 	args++;

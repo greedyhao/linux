@@ -248,9 +248,6 @@ static int mlx5_lag_fib_event(struct notifier_block *nb,
 	struct net_device *fib_dev;
 	struct fib_info *fi;
 
-	if (!net_eq(info->net, &init_net))
-		return NOTIFY_DONE;
-
 	if (info->family != AF_INET)
 		return NOTIFY_DONE;
 

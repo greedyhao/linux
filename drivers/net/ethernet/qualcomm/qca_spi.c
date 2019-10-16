@@ -837,7 +837,8 @@ qcaspi_netdev_uninit(struct net_device *dev)
 
 	kfree(qca->rx_buffer);
 	qca->buffer_size = 0;
-	dev_kfree_skb(qca->rx_skb);
+	if (qca->rx_skb)
+		dev_kfree_skb(qca->rx_skb);
 }
 
 static const struct net_device_ops qcaspi_netdev_ops = {

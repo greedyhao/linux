@@ -92,6 +92,9 @@ static void finish_session(struct snd_motu *motu)
 	if (err < 0)
 		return;
 
+	amdtp_stream_stop(&motu->tx_stream);
+	amdtp_stream_stop(&motu->rx_stream);
+
 	err = snd_motu_transaction_read(motu, ISOC_COMM_CONTROL_OFFSET, &reg,
 					sizeof(reg));
 	if (err < 0)
@@ -104,6 +107,27 @@ static void finish_session(struct snd_motu *motu)
 	reg = cpu_to_be32(data);
 	snd_motu_transaction_write(motu, ISOC_COMM_CONTROL_OFFSET, &reg,
 				   sizeof(reg));
+}
+
+static int start_isoc_ctx(struct snd_motu *motu, struct amdtp_stream *stream)
+{
+	struct fw_iso_resources *resources;
+	int err;
+
+	if (stream == &motu->rx_stream)
+		resources = &motu->rx_resources;
+	else
+		resources = &motu->tx_resources;
+
+	err = amdtp_stream_start(stream, resources->channel,
+				 fw_parent_device(motu->unit)->max_speed);
+	if (err < 0)
+		return err;
+
+	if (!amdtp_stream_wait_callback(stream, CALLBACK_TIMEOUT))
+		return -ETIMEDOUT;
+
+	return 0;
 }
 
 int snd_motu_stream_cache_packet_formats(struct snd_motu *motu)
@@ -145,7 +169,6 @@ int snd_motu_stream_reserve_duplex(struct snd_motu *motu, unsigned int rate)
 		rate = curr_rate;
 
 	if (motu->substreams_counter == 0 || curr_rate != rate) {
-		amdtp_domain_stop(&motu->domain);
 		finish_session(motu);
 
 		fw_iso_resources_free(&motu->tx_resources);
@@ -211,10 +234,8 @@ int snd_motu_stream_start_duplex(struct snd_motu *motu)
 		return 0;
 
 	if (amdtp_streaming_error(&motu->rx_stream) ||
-	    amdtp_streaming_error(&motu->tx_stream)) {
-		amdtp_domain_stop(&motu->domain);
+	    amdtp_streaming_error(&motu->tx_stream))
 		finish_session(motu);
-	}
 
 	if (generation != fw_parent_device(motu->unit)->card->generation) {
 		err = fw_iso_resources_update(&motu->rx_resources);
@@ -227,8 +248,6 @@ int snd_motu_stream_start_duplex(struct snd_motu *motu)
 	}
 
 	if (!amdtp_stream_running(&motu->rx_stream)) {
-		int spd = fw_parent_device(motu->unit)->max_speed;
-
 		err = ensure_packet_formats(motu);
 		if (err < 0)
 			return err;
@@ -240,25 +259,10 @@ int snd_motu_stream_start_duplex(struct snd_motu *motu)
 			goto stop_streams;
 		}
 
-		err = amdtp_domain_add_stream(&motu->domain, &motu->tx_stream,
-					      motu->tx_resources.channel, spd);
-		if (err < 0)
-			goto stop_streams;
-
-		err = amdtp_domain_add_stream(&motu->domain, &motu->rx_stream,
-					      motu->rx_resources.channel, spd);
-		if (err < 0)
-			goto stop_streams;
-
-		err = amdtp_domain_start(&motu->domain);
-		if (err < 0)
-			goto stop_streams;
-
-		if (!amdtp_stream_wait_callback(&motu->tx_stream,
-						CALLBACK_TIMEOUT) ||
-		    !amdtp_stream_wait_callback(&motu->rx_stream,
-						CALLBACK_TIMEOUT)) {
-			err = -ETIMEDOUT;
+		err = start_isoc_ctx(motu, &motu->rx_stream);
+		if (err < 0) {
+			dev_err(&motu->unit->device,
+				"fail to start IT context: %d\n", err);
 			goto stop_streams;
 		}
 
@@ -270,10 +274,18 @@ int snd_motu_stream_start_duplex(struct snd_motu *motu)
 		}
 	}
 
+	if (!amdtp_stream_running(&motu->tx_stream)) {
+		err = start_isoc_ctx(motu, &motu->tx_stream);
+		if (err < 0) {
+			dev_err(&motu->unit->device,
+				"fail to start IR context: %d", err);
+			goto stop_streams;
+		}
+	}
+
 	return 0;
 
 stop_streams:
-	amdtp_domain_stop(&motu->domain);
 	finish_session(motu);
 	return err;
 }
@@ -281,7 +293,6 @@ stop_streams:
 void snd_motu_stream_stop_duplex(struct snd_motu *motu)
 {
 	if (motu->substreams_counter == 0) {
-		amdtp_domain_stop(&motu->domain);
 		finish_session(motu);
 
 		fw_iso_resources_free(&motu->tx_resources);
@@ -289,72 +300,74 @@ void snd_motu_stream_stop_duplex(struct snd_motu *motu)
 	}
 }
 
-static int init_stream(struct snd_motu *motu, struct amdtp_stream *s)
+static int init_stream(struct snd_motu *motu, enum amdtp_stream_direction dir)
 {
-	struct fw_iso_resources *resources;
-	enum amdtp_stream_direction dir;
 	int err;
+	struct amdtp_stream *stream;
+	struct fw_iso_resources *resources;
 
-	if (s == &motu->tx_stream) {
+	if (dir == AMDTP_IN_STREAM) {
+		stream = &motu->tx_stream;
 		resources = &motu->tx_resources;
-		dir = AMDTP_IN_STREAM;
 	} else {
+		stream = &motu->rx_stream;
 		resources = &motu->rx_resources;
-		dir = AMDTP_OUT_STREAM;
 	}
 
 	err = fw_iso_resources_init(resources, motu->unit);
 	if (err < 0)
 		return err;
 
-	err = amdtp_motu_init(s, motu->unit, dir, motu->spec->protocol);
-	if (err < 0)
+	err = amdtp_motu_init(stream, motu->unit, dir, motu->spec->protocol);
+	if (err < 0) {
+		amdtp_stream_destroy(stream);
 		fw_iso_resources_destroy(resources);
+	}
 
 	return err;
 }
 
-static void destroy_stream(struct snd_motu *motu, struct amdtp_stream *s)
+static void destroy_stream(struct snd_motu *motu,
+			   enum amdtp_stream_direction dir)
 {
-	amdtp_stream_destroy(s);
+	struct amdtp_stream *stream;
+	struct fw_iso_resources *resources;
 
-	if (s == &motu->tx_stream)
-		fw_iso_resources_destroy(&motu->tx_resources);
-	else
-		fw_iso_resources_destroy(&motu->rx_resources);
+	if (dir == AMDTP_IN_STREAM) {
+		stream = &motu->tx_stream;
+		resources = &motu->tx_resources;
+	} else {
+		stream = &motu->rx_stream;
+		resources = &motu->rx_resources;
+	}
+
+	amdtp_stream_destroy(stream);
+	fw_iso_resources_destroy(resources);
 }
 
 int snd_motu_stream_init_duplex(struct snd_motu *motu)
 {
 	int err;
 
-	err = init_stream(motu, &motu->tx_stream);
+	err = init_stream(motu, AMDTP_IN_STREAM);
 	if (err < 0)
 		return err;
 
-	err = init_stream(motu, &motu->rx_stream);
-	if (err < 0) {
-		destroy_stream(motu, &motu->tx_stream);
-		return err;
-	}
-
-	err = amdtp_domain_init(&motu->domain);
-	if (err < 0) {
-		destroy_stream(motu, &motu->tx_stream);
-		destroy_stream(motu, &motu->rx_stream);
-	}
+	err = init_stream(motu, AMDTP_OUT_STREAM);
+	if (err < 0)
+		destroy_stream(motu, AMDTP_IN_STREAM);
 
 	return err;
 }
 
-// This function should be called before starting streams or after stopping
-// streams.
+/*
+ * This function should be called before starting streams or after stopping
+ * streams.
+ */
 void snd_motu_stream_destroy_duplex(struct snd_motu *motu)
 {
-	amdtp_domain_destroy(&motu->domain);
-
-	destroy_stream(motu, &motu->rx_stream);
-	destroy_stream(motu, &motu->tx_stream);
+	destroy_stream(motu, AMDTP_IN_STREAM);
+	destroy_stream(motu, AMDTP_OUT_STREAM);
 
 	motu->substreams_counter = 0;
 }

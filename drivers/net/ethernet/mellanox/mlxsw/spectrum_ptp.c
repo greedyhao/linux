@@ -29,7 +29,7 @@
 
 struct mlxsw_sp_ptp_state {
 	struct mlxsw_sp *mlxsw_sp;
-	struct rhltable unmatched_ht;
+	struct rhashtable unmatched_ht;
 	spinlock_t unmatched_lock; /* protects the HT */
 	struct delayed_work ht_gc_dw;
 	u32 gc_cycle;
@@ -45,7 +45,7 @@ struct mlxsw_sp1_ptp_key {
 
 struct mlxsw_sp1_ptp_unmatched {
 	struct mlxsw_sp1_ptp_key key;
-	struct rhlist_head ht_node;
+	struct rhash_head ht_node;
 	struct rcu_head rcu;
 	struct sk_buff *skb;
 	u64 timestamp;
@@ -359,7 +359,7 @@ static int mlxsw_sp_ptp_parse(struct sk_buff *skb,
 /* Returns NULL on successful insertion, a pointer on conflict, or an ERR_PTR on
  * error.
  */
-static int
+static struct mlxsw_sp1_ptp_unmatched *
 mlxsw_sp1_ptp_unmatched_save(struct mlxsw_sp *mlxsw_sp,
 			     struct mlxsw_sp1_ptp_key key,
 			     struct sk_buff *skb,
@@ -368,51 +368,41 @@ mlxsw_sp1_ptp_unmatched_save(struct mlxsw_sp *mlxsw_sp,
 	int cycles = MLXSW_SP1_PTP_HT_GC_TIMEOUT / MLXSW_SP1_PTP_HT_GC_INTERVAL;
 	struct mlxsw_sp_ptp_state *ptp_state = mlxsw_sp->ptp_state;
 	struct mlxsw_sp1_ptp_unmatched *unmatched;
-	int err;
+	struct mlxsw_sp1_ptp_unmatched *conflict;
 
 	unmatched = kzalloc(sizeof(*unmatched), GFP_ATOMIC);
 	if (!unmatched)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 
 	unmatched->key = key;
 	unmatched->skb = skb;
 	unmatched->timestamp = timestamp;
 	unmatched->gc_cycle = mlxsw_sp->ptp_state->gc_cycle + cycles;
 
-	err = rhltable_insert(&ptp_state->unmatched_ht, &unmatched->ht_node,
-			      mlxsw_sp1_ptp_unmatched_ht_params);
-	if (err)
+	conflict = rhashtable_lookup_get_insert_fast(&ptp_state->unmatched_ht,
+					    &unmatched->ht_node,
+					    mlxsw_sp1_ptp_unmatched_ht_params);
+	if (conflict)
 		kfree(unmatched);
 
-	return err;
+	return conflict;
 }
 
 static struct mlxsw_sp1_ptp_unmatched *
 mlxsw_sp1_ptp_unmatched_lookup(struct mlxsw_sp *mlxsw_sp,
-			       struct mlxsw_sp1_ptp_key key, int *p_length)
+			       struct mlxsw_sp1_ptp_key key)
 {
-	struct mlxsw_sp1_ptp_unmatched *unmatched, *last = NULL;
-	struct rhlist_head *tmp, *list;
-	int length = 0;
-
-	list = rhltable_lookup(&mlxsw_sp->ptp_state->unmatched_ht, &key,
-			       mlxsw_sp1_ptp_unmatched_ht_params);
-	rhl_for_each_entry_rcu(unmatched, tmp, list, ht_node) {
-		last = unmatched;
-		length++;
-	}
-
-	*p_length = length;
-	return last;
+	return rhashtable_lookup(&mlxsw_sp->ptp_state->unmatched_ht, &key,
+				 mlxsw_sp1_ptp_unmatched_ht_params);
 }
 
 static int
 mlxsw_sp1_ptp_unmatched_remove(struct mlxsw_sp *mlxsw_sp,
 			       struct mlxsw_sp1_ptp_unmatched *unmatched)
 {
-	return rhltable_remove(&mlxsw_sp->ptp_state->unmatched_ht,
-			       &unmatched->ht_node,
-			       mlxsw_sp1_ptp_unmatched_ht_params);
+	return rhashtable_remove_fast(&mlxsw_sp->ptp_state->unmatched_ht,
+				      &unmatched->ht_node,
+				      mlxsw_sp1_ptp_unmatched_ht_params);
 }
 
 /* This function is called in the following scenarios:
@@ -499,38 +489,75 @@ static void mlxsw_sp1_ptp_got_piece(struct mlxsw_sp *mlxsw_sp,
 				    struct mlxsw_sp1_ptp_key key,
 				    struct sk_buff *skb, u64 timestamp)
 {
-	struct mlxsw_sp1_ptp_unmatched *unmatched;
-	int length;
+	struct mlxsw_sp1_ptp_unmatched *unmatched, *conflict;
 	int err;
 
 	rcu_read_lock();
 
+	unmatched = mlxsw_sp1_ptp_unmatched_lookup(mlxsw_sp, key);
+
 	spin_lock(&mlxsw_sp->ptp_state->unmatched_lock);
 
-	unmatched = mlxsw_sp1_ptp_unmatched_lookup(mlxsw_sp, key, &length);
+	if (unmatched) {
+		/* There was an unmatched entry when we looked, but it may have
+		 * been removed before we took the lock.
+		 */
+		err = mlxsw_sp1_ptp_unmatched_remove(mlxsw_sp, unmatched);
+		if (err)
+			unmatched = NULL;
+	}
+
+	if (!unmatched) {
+		/* We have no unmatched entry, but one may have been added after
+		 * we looked, but before we took the lock.
+		 */
+		unmatched = mlxsw_sp1_ptp_unmatched_save(mlxsw_sp, key,
+							 skb, timestamp);
+		if (IS_ERR(unmatched)) {
+			if (skb)
+				mlxsw_sp1_ptp_packet_finish(mlxsw_sp, skb,
+							    key.local_port,
+							    key.ingress, NULL);
+			unmatched = NULL;
+		} else if (unmatched) {
+			/* Save just told us, under lock, that the entry is
+			 * there, so this has to work.
+			 */
+			err = mlxsw_sp1_ptp_unmatched_remove(mlxsw_sp,
+							     unmatched);
+			WARN_ON_ONCE(err);
+		}
+	}
+
+	/* If unmatched is non-NULL here, it comes either from the lookup, or
+	 * from the save attempt above. In either case the entry was removed
+	 * from the hash table. If unmatched is NULL, a new unmatched entry was
+	 * added to the hash table, and there was no conflict.
+	 */
+
 	if (skb && unmatched && unmatched->timestamp) {
 		unmatched->skb = skb;
 	} else if (timestamp && unmatched && unmatched->skb) {
 		unmatched->timestamp = timestamp;
-	} else {
-		/* Either there is no entry to match, or one that is there is
-		 * incompatible.
+	} else if (unmatched) {
+		/* unmatched holds an older entry of the same type: either an
+		 * skb if we are handling skb, or a timestamp if we are handling
+		 * timestamp. We can't match that up, so save what we have.
 		 */
-		if (length < 100)
-			err = mlxsw_sp1_ptp_unmatched_save(mlxsw_sp, key,
-							   skb, timestamp);
-		else
-			err = -E2BIG;
-		if (err && skb)
-			mlxsw_sp1_ptp_packet_finish(mlxsw_sp, skb,
-						    key.local_port,
-						    key.ingress, NULL);
-		unmatched = NULL;
-	}
-
-	if (unmatched) {
-		err = mlxsw_sp1_ptp_unmatched_remove(mlxsw_sp, unmatched);
-		WARN_ON_ONCE(err);
+		conflict = mlxsw_sp1_ptp_unmatched_save(mlxsw_sp, key,
+							skb, timestamp);
+		if (IS_ERR(conflict)) {
+			if (skb)
+				mlxsw_sp1_ptp_packet_finish(mlxsw_sp, skb,
+							    key.local_port,
+							    key.ingress, NULL);
+		} else {
+			/* Above, we removed an object with this key from the
+			 * hash table, under lock, so conflict can not be a
+			 * valid pointer.
+			 */
+			WARN_ON_ONCE(conflict);
+		}
 	}
 
 	spin_unlock(&mlxsw_sp->ptp_state->unmatched_lock);
@@ -630,8 +657,6 @@ static void
 mlxsw_sp1_ptp_ht_gc_collect(struct mlxsw_sp_ptp_state *ptp_state,
 			    struct mlxsw_sp1_ptp_unmatched *unmatched)
 {
-	struct mlxsw_sp_ptp_port_dir_stats *stats;
-	struct mlxsw_sp_port *mlxsw_sp_port;
 	int err;
 
 	/* If an unmatched entry has an SKB, it has to be handed over to the
@@ -644,24 +669,14 @@ mlxsw_sp1_ptp_ht_gc_collect(struct mlxsw_sp_ptp_state *ptp_state,
 	local_bh_disable();
 
 	spin_lock(&ptp_state->unmatched_lock);
-	err = rhltable_remove(&ptp_state->unmatched_ht, &unmatched->ht_node,
-			      mlxsw_sp1_ptp_unmatched_ht_params);
+	err = rhashtable_remove_fast(&ptp_state->unmatched_ht,
+				     &unmatched->ht_node,
+				     mlxsw_sp1_ptp_unmatched_ht_params);
 	spin_unlock(&ptp_state->unmatched_lock);
 
 	if (err)
 		/* The packet was matched with timestamp during the walk. */
 		goto out;
-
-	mlxsw_sp_port = ptp_state->mlxsw_sp->ports[unmatched->key.local_port];
-	if (mlxsw_sp_port) {
-		stats = unmatched->key.ingress ?
-			&mlxsw_sp_port->ptp.stats.rx_gcd :
-			&mlxsw_sp_port->ptp.stats.tx_gcd;
-		if (unmatched->skb)
-			stats->packets++;
-		else
-			stats->timestamps++;
-	}
 
 	/* mlxsw_sp1_ptp_unmatched_finish() invokes netif_receive_skb(). While
 	 * the comment at that function states that it can only be called in
@@ -687,7 +702,7 @@ static void mlxsw_sp1_ptp_ht_gc(struct work_struct *work)
 	ptp_state = container_of(dwork, struct mlxsw_sp_ptp_state, ht_gc_dw);
 	gc_cycle = ptp_state->gc_cycle++;
 
-	rhltable_walk_enter(&ptp_state->unmatched_ht, &iter);
+	rhashtable_walk_enter(&ptp_state->unmatched_ht, &iter);
 	rhashtable_walk_start(&iter);
 	while ((obj = rhashtable_walk_next(&iter))) {
 		if (IS_ERR(obj))
@@ -840,8 +855,8 @@ struct mlxsw_sp_ptp_state *mlxsw_sp1_ptp_init(struct mlxsw_sp *mlxsw_sp)
 
 	spin_lock_init(&ptp_state->unmatched_lock);
 
-	err = rhltable_init(&ptp_state->unmatched_ht,
-			    &mlxsw_sp1_ptp_unmatched_ht_params);
+	err = rhashtable_init(&ptp_state->unmatched_ht,
+			      &mlxsw_sp1_ptp_unmatched_ht_params);
 	if (err)
 		goto err_hashtable_init;
 
@@ -876,7 +891,7 @@ err_fifo_clr:
 err_mtptpt1_set:
 	mlxsw_sp_ptp_mtptpt_set(mlxsw_sp, MLXSW_REG_MTPTPT_TRAP_ID_PTP0, 0);
 err_mtptpt_set:
-	rhltable_destroy(&ptp_state->unmatched_ht);
+	rhashtable_destroy(&ptp_state->unmatched_ht);
 err_hashtable_init:
 	kfree(ptp_state);
 	return ERR_PTR(err);
@@ -891,8 +906,8 @@ void mlxsw_sp1_ptp_fini(struct mlxsw_sp_ptp_state *ptp_state)
 	mlxsw_sp1_ptp_set_fifo_clr_on_trap(mlxsw_sp, false);
 	mlxsw_sp_ptp_mtptpt_set(mlxsw_sp, MLXSW_REG_MTPTPT_TRAP_ID_PTP1, 0);
 	mlxsw_sp_ptp_mtptpt_set(mlxsw_sp, MLXSW_REG_MTPTPT_TRAP_ID_PTP0, 0);
-	rhltable_free_and_destroy(&ptp_state->unmatched_ht,
-				  &mlxsw_sp1_ptp_unmatched_free_fn, NULL);
+	rhashtable_free_and_destroy(&ptp_state->unmatched_ht,
+				    &mlxsw_sp1_ptp_unmatched_free_fn, NULL);
 	kfree(ptp_state);
 }
 
@@ -964,9 +979,6 @@ static int mlxsw_sp1_ptp_mtpppc_update(struct mlxsw_sp_port *mlxsw_sp_port,
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
 	struct mlxsw_sp_port *tmp;
-	u16 orig_ing_types = 0;
-	u16 orig_egr_types = 0;
-	int err;
 	int i;
 
 	/* MTPPPC configures timestamping globally, not per port. Find the
@@ -974,25 +986,11 @@ static int mlxsw_sp1_ptp_mtpppc_update(struct mlxsw_sp_port *mlxsw_sp_port,
 	 */
 	for (i = 1; i < mlxsw_core_max_ports(mlxsw_sp->core); i++) {
 		tmp = mlxsw_sp->ports[i];
-		if (tmp) {
-			orig_ing_types |= tmp->ptp.ing_types;
-			orig_egr_types |= tmp->ptp.egr_types;
-		}
 		if (tmp && tmp != mlxsw_sp_port) {
 			ing_types |= tmp->ptp.ing_types;
 			egr_types |= tmp->ptp.egr_types;
 		}
 	}
-
-	if ((ing_types || egr_types) && !(orig_ing_types || orig_egr_types)) {
-		err = mlxsw_sp_nve_inc_parsing_depth_get(mlxsw_sp);
-		if (err) {
-			netdev_err(mlxsw_sp_port->dev, "Failed to increase parsing depth");
-			return err;
-		}
-	}
-	if (!(ing_types || egr_types) && (orig_ing_types || orig_egr_types))
-		mlxsw_sp_nve_inc_parsing_depth_put(mlxsw_sp);
 
 	return mlxsw_sp1_ptp_mtpppc_set(mlxsw_sp_port->mlxsw_sp,
 				       ing_types, egr_types);
@@ -1110,58 +1108,4 @@ int mlxsw_sp1_ptp_get_ts_info(struct mlxsw_sp *mlxsw_sp,
 			   BIT(HWTSTAMP_FILTER_ALL);
 
 	return 0;
-}
-
-struct mlxsw_sp_ptp_port_stat {
-	char str[ETH_GSTRING_LEN];
-	ptrdiff_t offset;
-};
-
-#define MLXSW_SP_PTP_PORT_STAT(NAME, FIELD)				\
-	{								\
-		.str = NAME,						\
-		.offset = offsetof(struct mlxsw_sp_ptp_port_stats,	\
-				    FIELD),				\
-	}
-
-static const struct mlxsw_sp_ptp_port_stat mlxsw_sp_ptp_port_stats[] = {
-	MLXSW_SP_PTP_PORT_STAT("ptp_rx_gcd_packets",    rx_gcd.packets),
-	MLXSW_SP_PTP_PORT_STAT("ptp_rx_gcd_timestamps", rx_gcd.timestamps),
-	MLXSW_SP_PTP_PORT_STAT("ptp_tx_gcd_packets",    tx_gcd.packets),
-	MLXSW_SP_PTP_PORT_STAT("ptp_tx_gcd_timestamps", tx_gcd.timestamps),
-};
-
-#undef MLXSW_SP_PTP_PORT_STAT
-
-#define MLXSW_SP_PTP_PORT_STATS_LEN \
-	ARRAY_SIZE(mlxsw_sp_ptp_port_stats)
-
-int mlxsw_sp1_get_stats_count(void)
-{
-	return MLXSW_SP_PTP_PORT_STATS_LEN;
-}
-
-void mlxsw_sp1_get_stats_strings(u8 **p)
-{
-	int i;
-
-	for (i = 0; i < MLXSW_SP_PTP_PORT_STATS_LEN; i++) {
-		memcpy(*p, mlxsw_sp_ptp_port_stats[i].str,
-		       ETH_GSTRING_LEN);
-		*p += ETH_GSTRING_LEN;
-	}
-}
-
-void mlxsw_sp1_get_stats(struct mlxsw_sp_port *mlxsw_sp_port,
-			 u64 *data, int data_index)
-{
-	void *stats = &mlxsw_sp_port->ptp.stats;
-	ptrdiff_t offset;
-	int i;
-
-	data += data_index;
-	for (i = 0; i < MLXSW_SP_PTP_PORT_STATS_LEN; i++) {
-		offset = mlxsw_sp_ptp_port_stats[i].offset;
-		*data++ = *(u64 *)(stats + offset);
-	}
 }

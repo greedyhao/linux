@@ -23,28 +23,24 @@ static const char * const bch_cache_modes[] = {
 	"writethrough",
 	"writeback",
 	"writearound",
-	"none",
-	NULL
+	"none"
 };
 
 /* Default is 0 ("auto") */
 static const char * const bch_stop_on_failure_modes[] = {
 	"auto",
-	"always",
-	NULL
+	"always"
 };
 
 static const char * const cache_replacement_policies[] = {
 	"lru",
 	"fifo",
-	"random",
-	NULL
+	"random"
 };
 
 static const char * const error_actions[] = {
 	"unregister",
-	"panic",
-	NULL
+	"panic"
 };
 
 write_attribute(attach);
@@ -342,7 +338,7 @@ STORE(__cached_dev)
 	}
 
 	if (attr == &sysfs_cache_mode) {
-		v = __sysfs_match_string(bch_cache_modes, -1, buf);
+		v = sysfs_match_string(bch_cache_modes, buf);
 		if (v < 0)
 			return v;
 
@@ -353,7 +349,7 @@ STORE(__cached_dev)
 	}
 
 	if (attr == &sysfs_stop_when_cache_set_failed) {
-		v = __sysfs_match_string(bch_stop_on_failure_modes, -1, buf);
+		v = sysfs_match_string(bch_stop_on_failure_modes, buf);
 		if (v < 0)
 			return v;
 
@@ -820,7 +816,7 @@ STORE(__bch_cache_set)
 			    0, UINT_MAX);
 
 	if (attr == &sysfs_errors) {
-		v = __sysfs_match_string(error_actions, -1, buf);
+		v = sysfs_match_string(error_actions, buf);
 		if (v < 0)
 			return v;
 
@@ -964,7 +960,6 @@ KTYPE(bch_cache_set_internal);
 
 static int __bch_cache_cmp(const void *l, const void *r)
 {
-	cond_resched();
 	return *((uint16_t *)r) - *((uint16_t *)l);
 }
 
@@ -1093,7 +1088,7 @@ STORE(__bch_cache)
 	}
 
 	if (attr == &sysfs_cache_replacement_policy) {
-		v = __sysfs_match_string(cache_replacement_policies, -1, buf);
+		v = sysfs_match_string(cache_replacement_policies, buf);
 		if (v < 0)
 			return v;
 

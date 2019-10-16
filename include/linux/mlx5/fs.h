@@ -75,7 +75,6 @@ enum mlx5_flow_namespace_type {
 	MLX5_FLOW_NAMESPACE_SNIFFER_TX,
 	MLX5_FLOW_NAMESPACE_EGRESS,
 	MLX5_FLOW_NAMESPACE_RDMA_RX,
-	MLX5_FLOW_NAMESPACE_RDMA_RX_KERNEL,
 };
 
 enum {
@@ -84,8 +83,6 @@ enum {
 	FDB_SLOW_PATH,
 };
 
-struct mlx5_pkt_reformat;
-struct mlx5_modify_hdr;
 struct mlx5_flow_table;
 struct mlx5_flow_group;
 struct mlx5_flow_namespace;
@@ -123,15 +120,10 @@ struct mlx5_flow_destination {
 		struct {
 			u16		num;
 			u16		vhca_id;
-			struct mlx5_pkt_reformat *pkt_reformat;
+			u32		reformat_id;
 			u8		flags;
 		} vport;
 	};
-};
-
-struct mod_hdr_tbl {
-	struct mutex lock; /* protects hlist */
-	DECLARE_HASHTABLE(hlist, 8);
 };
 
 struct mlx5_flow_namespace *
@@ -197,8 +189,8 @@ enum {
 
 struct mlx5_flow_act {
 	u32 action;
-	struct mlx5_modify_hdr  *modify_hdr;
-	struct mlx5_pkt_reformat *pkt_reformat;
+	u32 reformat_id;
+	u32 modify_id;
 	uintptr_t esp_id;
 	u32 flags;
 	struct mlx5_fs_vlan vlan[MLX5_FS_VLAN_DEPTH];
@@ -207,6 +199,8 @@ struct mlx5_flow_act {
 
 #define MLX5_DECLARE_FLOW_ACT(name) \
 	struct mlx5_flow_act name = { .action = MLX5_FLOW_CONTEXT_ACTION_FWD_DEST,\
+				      .reformat_id = 0, \
+				      .modify_id = 0, \
 				      .flags =  0, }
 
 /* Single destination per rule.
@@ -226,7 +220,6 @@ int mlx5_modify_rule_destination(struct mlx5_flow_handle *handler,
 
 struct mlx5_fc *mlx5_fc_create(struct mlx5_core_dev *dev, bool aging);
 void mlx5_fc_destroy(struct mlx5_core_dev *dev, struct mlx5_fc *counter);
-u64 mlx5_fc_query_lastuse(struct mlx5_fc *counter);
 void mlx5_fc_query_cached(struct mlx5_fc *counter,
 			  u64 *bytes, u64 *packets, u64 *lastuse);
 int mlx5_fc_query(struct mlx5_core_dev *dev, struct mlx5_fc *counter,
@@ -236,18 +229,19 @@ u32 mlx5_fc_id(struct mlx5_fc *counter);
 int mlx5_fs_add_rx_underlay_qpn(struct mlx5_core_dev *dev, u32 underlay_qpn);
 int mlx5_fs_remove_rx_underlay_qpn(struct mlx5_core_dev *dev, u32 underlay_qpn);
 
-struct mlx5_modify_hdr *mlx5_modify_header_alloc(struct mlx5_core_dev *dev,
-						 u8 ns_type, u8 num_actions,
-						 void *modify_actions);
+int mlx5_modify_header_alloc(struct mlx5_core_dev *dev,
+			     u8 namespace, u8 num_actions,
+			     void *modify_actions, u32 *modify_header_id);
 void mlx5_modify_header_dealloc(struct mlx5_core_dev *dev,
-				struct mlx5_modify_hdr *modify_hdr);
+				u32 modify_header_id);
 
-struct mlx5_pkt_reformat *mlx5_packet_reformat_alloc(struct mlx5_core_dev *dev,
-						     int reformat_type,
-						     size_t size,
-						     void *reformat_data,
-						     enum mlx5_flow_namespace_type ns_type);
+int mlx5_packet_reformat_alloc(struct mlx5_core_dev *dev,
+			       int reformat_type,
+			       size_t size,
+			       void *reformat_data,
+			       enum mlx5_flow_namespace_type namespace,
+			       u32 *packet_reformat_id);
 void mlx5_packet_reformat_dealloc(struct mlx5_core_dev *dev,
-				  struct mlx5_pkt_reformat *reformat);
+				  u32 packet_reformat_id);
 
 #endif

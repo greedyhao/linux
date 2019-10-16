@@ -873,12 +873,7 @@ static int sun8i_dwmac_set_syscon(struct stmmac_priv *priv)
 	int ret;
 	u32 reg, val;
 
-	ret = regmap_field_read(gmac->regmap_field, &val);
-	if (ret) {
-		dev_err(priv->device, "Fail to read from regmap field.\n");
-		return ret;
-	}
-
+	regmap_field_read(gmac->regmap_field, &val);
 	reg = gmac->variant->default_syscon_value;
 	if (reg != val)
 		dev_warn(priv->device,

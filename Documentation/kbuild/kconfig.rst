@@ -264,7 +264,6 @@ NCONFIG_MODE
 This mode shows all sub-menus in one large tree.
 
 Example::
-
 	make NCONFIG_MODE=single_menu nconfig
 
 ----------------------------------------------------------------------
@@ -278,12 +277,9 @@ Searching in xconfig:
 	names, so you have to know something close to what you are
 	looking for.
 
-	Example::
-
+	Example:
 		Ctrl-F hotplug
-
-	or::
-
+	or
 		Menu: File, Search, hotplug
 
 	lists all config symbol entries that contain "hotplug" in

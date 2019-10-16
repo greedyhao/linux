@@ -398,7 +398,7 @@ out:
 	return 1;
 }
 
-int kprobe_fault_handler(struct pt_regs *regs, int trapnr)
+static inline int kprobe_fault_handler(struct pt_regs *regs, int trapnr)
 {
 	struct kprobe *cur = kprobe_running();
 	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();

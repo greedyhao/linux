@@ -4,6 +4,8 @@
  *
  * Copyright 2015 Google Inc.
  * Copyright 2015 Linaro Ltd.
+ *
+ * Provided under the three clause BSD license found in the LICENSE file.
  */
 #include <errno.h>
 #include <fcntl.h>

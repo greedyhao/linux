@@ -250,7 +250,6 @@ static struct platform_driver samsung_usb2_phy_driver = {
 	.driver = {
 		.of_match_table	= samsung_usb2_phy_of_match,
 		.name		= "samsung-usb2-phy",
-		.suppress_bind_attrs = true,
 	}
 };
 

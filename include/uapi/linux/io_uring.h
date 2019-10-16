@@ -28,7 +28,6 @@ struct io_uring_sqe {
 		__u16		poll_events;
 		__u32		sync_range_flags;
 		__u32		msg_flags;
-		__u32		timeout_flags;
 	};
 	__u64	user_data;	/* data to be passed back at completion time */
 	union {
@@ -62,7 +61,6 @@ struct io_uring_sqe {
 #define IORING_OP_SYNC_FILE_RANGE	8
 #define IORING_OP_SENDMSG	9
 #define IORING_OP_RECVMSG	10
-#define IORING_OP_TIMEOUT	11
 
 /*
  * sqe->fsync_flags
@@ -130,16 +128,10 @@ struct io_uring_params {
 	__u32 flags;
 	__u32 sq_thread_cpu;
 	__u32 sq_thread_idle;
-	__u32 features;
-	__u32 resv[4];
+	__u32 resv[5];
 	struct io_sqring_offsets sq_off;
 	struct io_cqring_offsets cq_off;
 };
-
-/*
- * io_uring_params->features flags
- */
-#define IORING_FEAT_SINGLE_MMAP		(1U << 0)
 
 /*
  * io_uring_register(2) opcodes and arguments

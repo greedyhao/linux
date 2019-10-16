@@ -1126,7 +1126,8 @@ static void e1000_free_desc_rings(struct e1000_adapter *adapter)
 						 buffer_info->dma,
 						 buffer_info->length,
 						 DMA_TO_DEVICE);
-			dev_kfree_skb(buffer_info->skb);
+			if (buffer_info->skb)
+				dev_kfree_skb(buffer_info->skb);
 		}
 	}
 
@@ -1138,7 +1139,8 @@ static void e1000_free_desc_rings(struct e1000_adapter *adapter)
 				dma_unmap_single(&pdev->dev,
 						 buffer_info->dma,
 						 2048, DMA_FROM_DEVICE);
-			dev_kfree_skb(buffer_info->skb);
+			if (buffer_info->skb)
+				dev_kfree_skb(buffer_info->skb);
 		}
 	}
 

@@ -4,10 +4,9 @@
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
-#include "dso.h"
 #include "map.h"
 #include "symbol.h"
-#include <internal/lib.h> // page_size
+#include "util.h"
 #include "tests.h"
 #include "debug.h"
 #include "machine.h"

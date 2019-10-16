@@ -99,7 +99,6 @@ struct mtk_video_fmt {
 	u32	fourcc;
 	enum mtk_fmt_type	type;
 	u32	num_planes;
-	u32	flags;
 };
 
 /**

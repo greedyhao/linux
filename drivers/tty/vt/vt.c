@@ -3771,11 +3771,7 @@ static ssize_t show_bind(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
 	struct con_driver *con = dev_get_drvdata(dev);
-	int bind;
-
-	console_lock();
-	bind = con_is_bound(con->con);
-	console_unlock();
+	int bind = con_is_bound(con->con);
 
 	return snprintf(buf, PAGE_SIZE, "%i\n", bind);
 }

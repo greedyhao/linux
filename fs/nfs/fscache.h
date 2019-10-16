@@ -182,7 +182,7 @@ static inline void nfs_fscache_wait_on_invalidate(struct inode *inode)
  */
 static inline const char *nfs_server_fscache_state(struct nfs_server *server)
 {
-	if (server->fscache)
+	if (server->fscache && (server->options & NFS_OPTION_FSCACHE))
 		return "yes";
 	return "no ";
 }

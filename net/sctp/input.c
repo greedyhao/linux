@@ -201,7 +201,7 @@ int sctp_rcv(struct sk_buff *skb)
 
 	if (!xfrm_policy_check(sk, XFRM_POLICY_IN, skb, family))
 		goto discard_release;
-	nf_reset_ct(skb);
+	nf_reset(skb);
 
 	if (sk_filter(sk, skb))
 		goto discard_release;

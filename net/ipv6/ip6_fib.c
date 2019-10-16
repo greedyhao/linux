@@ -318,7 +318,7 @@ struct dst_entry *fib6_rule_lookup(struct net *net, struct flowi6 *fl6,
 	if (rt->dst.error == -EAGAIN) {
 		ip6_rt_put_flags(rt, flags);
 		rt = net->ipv6.ip6_null_entry;
-		if (!(flags & RT6_LOOKUP_F_DST_NOREF))
+		if (!(flags | RT6_LOOKUP_F_DST_NOREF))
 			dst_hold(&rt->dst);
 	}
 
@@ -1151,24 +1151,8 @@ add:
 			err = call_fib6_entry_notifiers(info->nl_net,
 							FIB_EVENT_ENTRY_ADD,
 							rt, extack);
-			if (err) {
-				struct fib6_info *sibling, *next_sibling;
-
-				/* If the route has siblings, then it first
-				 * needs to be unlinked from them.
-				 */
-				if (!rt->fib6_nsiblings)
-					return err;
-
-				list_for_each_entry_safe(sibling, next_sibling,
-							 &rt->fib6_siblings,
-							 fib6_siblings)
-					sibling->fib6_nsiblings--;
-				rt->fib6_nsiblings = 0;
-				list_del_init(&rt->fib6_siblings);
-				rt6_multipath_rebalance(next_sibling);
+			if (err)
 				return err;
-			}
 		}
 
 		rcu_assign_pointer(rt->fib6_next, iter);

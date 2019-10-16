@@ -422,19 +422,6 @@ void rxrpc_get_call(struct rxrpc_call *call, enum rxrpc_call_trace op)
 }
 
 /*
- * Clean up the RxTx skb ring.
- */
-static void rxrpc_cleanup_ring(struct rxrpc_call *call)
-{
-	int i;
-
-	for (i = 0; i < RXRPC_RXTX_BUFF_SIZE; i++) {
-		rxrpc_free_skb(call->rxtx_buffer[i], rxrpc_skb_cleaned);
-		call->rxtx_buffer[i] = NULL;
-	}
-}
-
-/*
  * Detach a call from its owning socket.
  */
 void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
@@ -442,6 +429,7 @@ void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 	const void *here = __builtin_return_address(0);
 	struct rxrpc_connection *conn = call->conn;
 	bool put = false;
+	int i;
 
 	_enter("{%d,%d}", call->debug_id, atomic_read(&call->usage));
 
@@ -488,12 +476,16 @@ void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 
 	_debug("RELEASE CALL %p (%d CONN %p)", call, call->debug_id, conn);
 
-	if (conn) {
+	if (conn)
 		rxrpc_disconnect_call(call);
-		conn->security->free_call_crypto(call);
+
+	for (i = 0; i < RXRPC_RXTX_BUFF_SIZE; i++) {
+		rxrpc_free_skb(call->rxtx_buffer[i],
+			       (call->tx_phase ? rxrpc_skb_tx_cleaned :
+				rxrpc_skb_rx_cleaned));
+		call->rxtx_buffer[i] = NULL;
 	}
 
-	rxrpc_cleanup_ring(call);
 	_leave("");
 }
 
@@ -576,6 +568,8 @@ static void rxrpc_rcu_destroy_call(struct rcu_head *rcu)
  */
 void rxrpc_cleanup_call(struct rxrpc_call *call)
 {
+	int i;
+
 	_net("DESTROY CALL %d", call->debug_id);
 
 	memset(&call->sock_node, 0xcd, sizeof(call->sock_node));
@@ -586,8 +580,13 @@ void rxrpc_cleanup_call(struct rxrpc_call *call)
 	ASSERT(test_bit(RXRPC_CALL_RELEASED, &call->flags));
 	ASSERTCMP(call->conn, ==, NULL);
 
-	rxrpc_cleanup_ring(call);
-	rxrpc_free_skb(call->tx_pending, rxrpc_skb_cleaned);
+	/* Clean up the Rx/Tx buffer */
+	for (i = 0; i < RXRPC_RXTX_BUFF_SIZE; i++)
+		rxrpc_free_skb(call->rxtx_buffer[i],
+			       (call->tx_phase ? rxrpc_skb_tx_cleaned :
+				rxrpc_skb_rx_cleaned));
+
+	rxrpc_free_skb(call->tx_pending, rxrpc_skb_tx_cleaned);
 
 	call_rcu(&call->rcu, rxrpc_rcu_destroy_call);
 }

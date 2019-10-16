@@ -26,7 +26,7 @@
 
 static unsigned long virt_to_hvpfn(void *addr)
 {
-	phys_addr_t paddr;
+	unsigned long paddr;
 
 	if (is_vmalloc_addr(addr))
 		paddr = page_to_phys(vmalloc_to_page(addr)) +

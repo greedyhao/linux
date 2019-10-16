@@ -530,12 +530,11 @@ static void sprd_eic_handle_one_type(struct gpio_chip *chip)
 		}
 
 		for_each_set_bit(n, &reg, SPRD_EIC_PER_BANK_NR) {
-			u32 offset = bank * SPRD_EIC_PER_BANK_NR + n;
-
-			girq = irq_find_mapping(chip->irq.domain, offset);
+			girq = irq_find_mapping(chip->irq.domain,
+					bank * SPRD_EIC_PER_BANK_NR + n);
 
 			generic_handle_irq(girq);
-			sprd_eic_toggle_trigger(chip, girq, offset);
+			sprd_eic_toggle_trigger(chip, girq, n);
 		}
 	}
 }
@@ -585,8 +584,10 @@ static int sprd_eic_probe(struct platform_device *pdev)
 	sprd_eic->type = pdata->type;
 
 	sprd_eic->irq = platform_get_irq(pdev, 0);
-	if (sprd_eic->irq < 0)
+	if (sprd_eic->irq < 0) {
+		dev_err(&pdev->dev, "Failed to get EIC interrupt.\n");
 		return sprd_eic->irq;
+	}
 
 	for (i = 0; i < SPRD_EIC_MAX_BANK; i++) {
 		/*

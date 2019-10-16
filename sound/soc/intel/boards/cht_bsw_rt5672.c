@@ -8,7 +8,6 @@
  *          Mengdong Lin <mengdong.lin@intel.com>
  */
 
-#include <linux/gpio/consumer.h>
 #include <linux/input.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>

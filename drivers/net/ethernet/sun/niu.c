@@ -6695,7 +6695,7 @@ static netdev_tx_t niu_start_xmit(struct sk_buff *skb,
 
 		len = skb_frag_size(frag);
 		mapping = np->ops->map_page(np->device, skb_frag_page(frag),
-					    skb_frag_off(frag), len,
+					    frag->page_offset, len,
 					    DMA_TO_DEVICE);
 
 		rp->tx_buffs[prod].skb = NULL;

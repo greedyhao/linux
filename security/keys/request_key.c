@@ -595,7 +595,7 @@ struct key *request_key_and_link(struct key_type *type,
 
 	key = check_cached_key(&ctx);
 	if (key)
-		goto error_free;
+		return key;
 
 	/* search all the process keyrings for a key */
 	rcu_read_lock();

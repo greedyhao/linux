@@ -154,7 +154,7 @@ static int utf8_parse_version(const char *version, unsigned int *maj,
 {
 	substring_t args[3];
 	char version_string[12];
-	static const struct match_token token[] = {
+	const struct match_token token[] = {
 		{1, "%d.%d.%d"},
 		{0, NULL}
 	};

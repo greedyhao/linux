@@ -90,7 +90,9 @@ static int lm36274_parse_dt(struct lm36274 *lm36274_data)
 			snprintf(label, sizeof(label),
 				 "%s:%s", lm36274_data->pdev->name, name);
 
-		lm36274_data->num_leds = fwnode_property_count_u32(child, "led-sources");
+		lm36274_data->num_leds = fwnode_property_read_u32_array(child,
+							  "led-sources",
+							  NULL, 0);
 		if (lm36274_data->num_leds <= 0)
 			return -ENODEV;
 

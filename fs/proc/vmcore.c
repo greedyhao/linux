@@ -21,7 +21,6 @@
 #include <linux/init.h>
 #include <linux/crash_dump.h>
 #include <linux/list.h>
-#include <linux/moduleparam.h>
 #include <linux/mutex.h>
 #include <linux/vmalloc.h>
 #include <linux/pagemap.h>
@@ -55,9 +54,6 @@ static struct proc_dir_entry *proc_vmcore;
 /* Device Dump list and mutex to synchronize access to list */
 static LIST_HEAD(vmcoredd_list);
 static DEFINE_MUTEX(vmcoredd_mutex);
-
-static bool vmcoredd_disabled;
-core_param(novmcoredd, vmcoredd_disabled, bool, 0);
 #endif /* CONFIG_PROC_VMCORE_DEVICE_DUMP */
 
 /* Device Dump Size */
@@ -104,9 +100,9 @@ static int pfn_is_ram(unsigned long pfn)
 }
 
 /* Reads a page from the oldmem device from given offset. */
-ssize_t read_from_oldmem(char *buf, size_t count,
-			 u64 *ppos, int userbuf,
-			 bool encrypted)
+static ssize_t read_from_oldmem(char *buf, size_t count,
+				u64 *ppos, int userbuf,
+				bool encrypted)
 {
 	unsigned long pfn, offset;
 	size_t nr_bytes;
@@ -170,7 +166,7 @@ void __weak elfcorehdr_free(unsigned long long addr)
  */
 ssize_t __weak elfcorehdr_read(char *buf, size_t count, u64 *ppos)
 {
-	return read_from_oldmem(buf, count, ppos, 0, false);
+	return read_from_oldmem(buf, count, ppos, 0, sev_active());
 }
 
 /*
@@ -1455,11 +1451,6 @@ int vmcore_add_device_dump(struct vmcoredd_data *data)
 	void *buf = NULL;
 	size_t data_size;
 	int ret;
-
-	if (vmcoredd_disabled) {
-		pr_err_once("Device dump is disabled\n");
-		return -EINVAL;
-	}
 
 	if (!data || !strlen(data->dump_name) ||
 	    !data->vmcoredd_callback || !data->size)

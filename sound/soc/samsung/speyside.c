@@ -240,7 +240,8 @@ static int speyside_wm9081_init(struct snd_soc_component *component)
 
 static struct snd_soc_aux_dev speyside_aux_dev[] = {
 	{
-		.dlc = COMP_AUX("wm9081.1-006c"),
+		.name = "wm9081",
+		.codec_name = "wm9081.1-006c",
 		.init = speyside_wm9081_init,
 	},
 };

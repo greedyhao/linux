@@ -25,9 +25,8 @@ RE_function = re.compile(r'([\w_][\w\d_]+\(\))')
 # to the creation of incorrect and confusing cross references.  So
 # just don't even try with these names.
 #
-Skipfuncs = [ 'open', 'close', 'read', 'write', 'fcntl', 'mmap',
-              'select', 'poll', 'fork', 'execve', 'clone', 'ioctl',
-              'socket' ]
+Skipfuncs = [ 'open', 'close', 'read', 'write', 'fcntl', 'mmap'
+              'select', 'poll', 'fork', 'execve', 'clone', 'ioctl']
 
 #
 # Find all occurrences of function() and try to replace them with

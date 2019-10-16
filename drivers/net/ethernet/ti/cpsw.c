@@ -2570,7 +2570,7 @@ static int cpsw_probe_dt(struct cpsw_platform_data *data,
 			ret = PTR_ERR(slave_data->ifphy);
 			dev_err(&pdev->dev,
 				"%d: Error retrieving port phy: %d\n", i, ret);
-			goto err_node_put;
+			return ret;
 		}
 
 		slave_data->slave_node = slave_node;
@@ -2589,7 +2589,7 @@ static int cpsw_probe_dt(struct cpsw_platform_data *data,
 			if (ret) {
 				if (ret != -EPROBE_DEFER)
 					dev_err(&pdev->dev, "failed to register fixed-link phy: %d\n", ret);
-				goto err_node_put;
+				return ret;
 			}
 			slave_data->phy_node = of_node_get(slave_node);
 		} else if (parp) {
@@ -2607,8 +2607,7 @@ static int cpsw_probe_dt(struct cpsw_platform_data *data,
 			of_node_put(mdio_node);
 			if (!mdio) {
 				dev_err(&pdev->dev, "Missing mdio platform device\n");
-				ret = -EINVAL;
-				goto err_node_put;
+				return -EINVAL;
 			}
 			snprintf(slave_data->phy_id, sizeof(slave_data->phy_id),
 				 PHY_ID_FMT, mdio->name, phyid);
@@ -2623,8 +2622,7 @@ static int cpsw_probe_dt(struct cpsw_platform_data *data,
 		if (slave_data->phy_if < 0) {
 			dev_err(&pdev->dev, "Missing or malformed slave[%d] phy-mode property\n",
 				i);
-			ret = slave_data->phy_if;
-			goto err_node_put;
+			return slave_data->phy_if;
 		}
 
 no_phy_slave:
@@ -2635,7 +2633,7 @@ no_phy_slave:
 			ret = ti_cm_get_macid(&pdev->dev, i,
 					      slave_data->mac_addr);
 			if (ret)
-				goto err_node_put;
+				return ret;
 		}
 		if (data->dual_emac) {
 			if (of_property_read_u32(slave_node, "dual_emac_res_vlan",
@@ -2650,17 +2648,11 @@ no_phy_slave:
 		}
 
 		i++;
-		if (i == data->slaves) {
-			ret = 0;
-			goto err_node_put;
-		}
+		if (i == data->slaves)
+			break;
 	}
 
 	return 0;
-
-err_node_put:
-	of_node_put(slave_node);
-	return ret;
 }
 
 static void cpsw_remove_dt(struct platform_device *pdev)
@@ -2683,10 +2675,8 @@ static void cpsw_remove_dt(struct platform_device *pdev)
 		of_node_put(slave_data->phy_node);
 
 		i++;
-		if (i == data->slaves) {
-			of_node_put(slave_node);
+		if (i == data->slaves)
 			break;
-		}
 	}
 
 	of_platform_depopulate(&pdev->dev);
@@ -2764,7 +2754,7 @@ static int cpsw_probe(struct platform_device *pdev)
 	struct net_device		*ndev;
 	struct cpsw_priv		*priv;
 	void __iomem			*ss_regs;
-	struct resource			*ss_res;
+	struct resource			*res, *ss_res;
 	struct gpio_descs		*mode;
 	const struct soc_device_attribute *soc;
 	struct cpsw_common		*cpsw;
@@ -2775,7 +2765,6 @@ static int cpsw_probe(struct platform_device *pdev)
 	if (!cpsw)
 		return -ENOMEM;
 
-	platform_set_drvdata(pdev, cpsw);
 	cpsw->dev = dev;
 
 	mode = devm_gpiod_get_array_optional(dev, "mode", GPIOD_OUT_LOW);
@@ -2799,7 +2788,8 @@ static int cpsw_probe(struct platform_device *pdev)
 		return PTR_ERR(ss_regs);
 	cpsw->regs = ss_regs;
 
-	cpsw->wr_regs = devm_platform_ioremap_resource(pdev, 1);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	cpsw->wr_regs = devm_ioremap_resource(dev, res);
 	if (IS_ERR(cpsw->wr_regs))
 		return PTR_ERR(cpsw->wr_regs);
 
@@ -2879,6 +2869,7 @@ static int cpsw_probe(struct platform_device *pdev)
 		goto clean_cpts;
 	}
 
+	platform_set_drvdata(pdev, cpsw);
 	priv = netdev_priv(ndev);
 	priv->cpsw = cpsw;
 	priv->ndev = ndev;

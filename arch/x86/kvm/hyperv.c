@@ -23,7 +23,6 @@
 #include "ioapic.h"
 #include "hyperv.h"
 
-#include <linux/cpu.h>
 #include <linux/kvm_host.h>
 #include <linux/highmem.h>
 #include <linux/sched/cputime.h>
@@ -646,9 +645,7 @@ static int stimer_notify_direct(struct kvm_vcpu_hv_stimer *stimer)
 		.vector = stimer->config.apic_vector
 	};
 
-	if (lapic_in_kernel(vcpu))
-		return !kvm_apic_set_irq(vcpu, &irq, NULL);
-	return 0;
+	return !kvm_apic_set_irq(vcpu, &irq, NULL);
 }
 
 static void stimer_expiration(struct kvm_vcpu_hv_stimer *stimer)
@@ -1597,7 +1594,7 @@ int kvm_hv_hypercall(struct kvm_vcpu *vcpu)
 {
 	u64 param, ingpa, outgpa, ret = HV_STATUS_SUCCESS;
 	uint16_t code, rep_idx, rep_cnt;
-	bool fast, rep;
+	bool fast, longmode, rep;
 
 	/*
 	 * hypercall generates UD from non zero cpl and real mode
@@ -1608,14 +1605,9 @@ int kvm_hv_hypercall(struct kvm_vcpu *vcpu)
 		return 1;
 	}
 
-#ifdef CONFIG_X86_64
-	if (is_64_bit_mode(vcpu)) {
-		param = kvm_rcx_read(vcpu);
-		ingpa = kvm_rdx_read(vcpu);
-		outgpa = kvm_r8_read(vcpu);
-	} else
-#endif
-	{
+	longmode = is_64_bit_mode(vcpu);
+
+	if (!longmode) {
 		param = ((u64)kvm_rdx_read(vcpu) << 32) |
 			(kvm_rax_read(vcpu) & 0xffffffff);
 		ingpa = ((u64)kvm_rbx_read(vcpu) << 32) |
@@ -1623,6 +1615,13 @@ int kvm_hv_hypercall(struct kvm_vcpu *vcpu)
 		outgpa = ((u64)kvm_rdi_read(vcpu) << 32) |
 			(kvm_rsi_read(vcpu) & 0xffffffff);
 	}
+#ifdef CONFIG_X86_64
+	else {
+		param = kvm_rcx_read(vcpu);
+		ingpa = kvm_rdx_read(vcpu);
+		outgpa = kvm_r8_read(vcpu);
+	}
+#endif
 
 	code = param & 0xffff;
 	fast = !!(param & HV_HYPERCALL_FAST_BIT);
@@ -1784,7 +1783,7 @@ int kvm_vm_ioctl_hv_eventfd(struct kvm *kvm, struct kvm_hyperv_eventfd *args)
 int kvm_vcpu_ioctl_get_hv_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid2 *cpuid,
 				struct kvm_cpuid_entry2 __user *entries)
 {
-	uint16_t evmcs_ver = 0;
+	uint16_t evmcs_ver = kvm_x86_ops->nested_get_evmcs_version(vcpu);
 	struct kvm_cpuid_entry2 cpuid_entries[] = {
 		{ .function = HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS },
 		{ .function = HYPERV_CPUID_INTERFACE },
@@ -1795,9 +1794,6 @@ int kvm_vcpu_ioctl_get_hv_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid2 *cpuid,
 		{ .function = HYPERV_CPUID_NESTED_FEATURES },
 	};
 	int i, nent = ARRAY_SIZE(cpuid_entries);
-
-	if (kvm_x86_ops->nested_get_evmcs_version)
-		evmcs_ver = kvm_x86_ops->nested_get_evmcs_version(vcpu);
 
 	/* Skip NESTED_FEATURES if eVMCS is not supported */
 	if (!evmcs_ver)
@@ -1855,13 +1851,7 @@ int kvm_vcpu_ioctl_get_hv_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid2 *cpuid,
 
 			ent->edx |= HV_FEATURE_FREQUENCY_MSRS_AVAILABLE;
 			ent->edx |= HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE;
-
-			/*
-			 * Direct Synthetic timers only make sense with in-kernel
-			 * LAPIC
-			 */
-			if (lapic_in_kernel(vcpu))
-				ent->edx |= HV_STIMER_DIRECT_MODE_AVAILABLE;
+			ent->edx |= HV_STIMER_DIRECT_MODE_AVAILABLE;
 
 			break;
 
@@ -1873,8 +1863,7 @@ int kvm_vcpu_ioctl_get_hv_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid2 *cpuid,
 			ent->eax |= HV_X64_EX_PROCESSOR_MASKS_RECOMMENDED;
 			if (evmcs_ver)
 				ent->eax |= HV_X64_ENLIGHTENED_VMCS_RECOMMENDED;
-			if (!cpu_smt_possible())
-				ent->eax |= HV_X64_NO_NONARCH_CORESHARING;
+
 			/*
 			 * Default number of spinlock retry attempts, matches
 			 * HyperV 2016.

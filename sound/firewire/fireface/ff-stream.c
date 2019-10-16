@@ -32,65 +32,61 @@ int snd_ff_stream_get_multiplier_mode(enum cip_sfc sfc,
 
 static inline void finish_session(struct snd_ff *ff)
 {
+	amdtp_stream_stop(&ff->tx_stream);
+	amdtp_stream_stop(&ff->rx_stream);
+
 	ff->spec->protocol->finish_session(ff);
 	ff->spec->protocol->switch_fetching_mode(ff, false);
 }
 
-static int init_stream(struct snd_ff *ff, struct amdtp_stream *s)
+static int init_stream(struct snd_ff *ff, enum amdtp_stream_direction dir)
 {
-	struct fw_iso_resources *resources;
-	enum amdtp_stream_direction dir;
 	int err;
+	struct fw_iso_resources *resources;
+	struct amdtp_stream *stream;
 
-	if (s == &ff->tx_stream) {
+	if (dir == AMDTP_IN_STREAM) {
 		resources = &ff->tx_resources;
-		dir = AMDTP_IN_STREAM;
+		stream = &ff->tx_stream;
 	} else {
 		resources = &ff->rx_resources;
-		dir = AMDTP_OUT_STREAM;
+		stream = &ff->rx_stream;
 	}
 
 	err = fw_iso_resources_init(resources, ff->unit);
 	if (err < 0)
 		return err;
 
-	err = amdtp_ff_init(s, ff->unit, dir);
+	err = amdtp_ff_init(stream, ff->unit, dir);
 	if (err < 0)
 		fw_iso_resources_destroy(resources);
 
 	return err;
 }
 
-static void destroy_stream(struct snd_ff *ff, struct amdtp_stream *s)
+static void destroy_stream(struct snd_ff *ff, enum amdtp_stream_direction dir)
 {
-	amdtp_stream_destroy(s);
-
-	if (s == &ff->tx_stream)
+	if (dir == AMDTP_IN_STREAM) {
+		amdtp_stream_destroy(&ff->tx_stream);
 		fw_iso_resources_destroy(&ff->tx_resources);
-	else
+	} else {
+		amdtp_stream_destroy(&ff->rx_stream);
 		fw_iso_resources_destroy(&ff->rx_resources);
+	}
 }
 
 int snd_ff_stream_init_duplex(struct snd_ff *ff)
 {
 	int err;
 
-	err = init_stream(ff, &ff->rx_stream);
+	err = init_stream(ff, AMDTP_OUT_STREAM);
 	if (err < 0)
-		return err;
+		goto end;
 
-	err = init_stream(ff, &ff->tx_stream);
-	if (err < 0) {
-		destroy_stream(ff, &ff->rx_stream);
-		return err;
-	}
-
-	err = amdtp_domain_init(&ff->domain);
-	if (err < 0) {
-		destroy_stream(ff, &ff->rx_stream);
-		destroy_stream(ff, &ff->tx_stream);
-	}
-
+	err = init_stream(ff, AMDTP_IN_STREAM);
+	if (err < 0)
+		destroy_stream(ff, AMDTP_OUT_STREAM);
+end:
 	return err;
 }
 
@@ -100,10 +96,8 @@ int snd_ff_stream_init_duplex(struct snd_ff *ff)
  */
 void snd_ff_stream_destroy_duplex(struct snd_ff *ff)
 {
-	amdtp_domain_destroy(&ff->domain);
-
-	destroy_stream(ff, &ff->rx_stream);
-	destroy_stream(ff, &ff->tx_stream);
+	destroy_stream(ff, AMDTP_IN_STREAM);
+	destroy_stream(ff, AMDTP_OUT_STREAM);
 }
 
 int snd_ff_stream_reserve_duplex(struct snd_ff *ff, unsigned int rate)
@@ -120,7 +114,6 @@ int snd_ff_stream_reserve_duplex(struct snd_ff *ff, unsigned int rate)
 		enum snd_ff_stream_mode mode;
 		int i;
 
-		amdtp_domain_stop(&ff->domain);
 		finish_session(ff);
 
 		fw_iso_resources_free(&ff->tx_resources);
@@ -163,39 +156,25 @@ int snd_ff_stream_start_duplex(struct snd_ff *ff, unsigned int rate)
 		return 0;
 
 	if (amdtp_streaming_error(&ff->tx_stream) ||
-	    amdtp_streaming_error(&ff->rx_stream)) {
-		amdtp_domain_stop(&ff->domain);
+	    amdtp_streaming_error(&ff->rx_stream))
 		finish_session(ff);
-	}
 
 	/*
 	 * Regardless of current source of clock signal, drivers transfer some
 	 * packets. Then, the device transfers packets.
 	 */
 	if (!amdtp_stream_running(&ff->rx_stream)) {
-		int spd = fw_parent_device(ff->unit)->max_speed;
-
 		err = ff->spec->protocol->begin_session(ff, rate);
 		if (err < 0)
 			goto error;
 
-		err = amdtp_domain_add_stream(&ff->domain, &ff->rx_stream,
-					      ff->rx_resources.channel, spd);
-		if (err < 0)
-			goto error;
-
-		err = amdtp_domain_add_stream(&ff->domain, &ff->tx_stream,
-					      ff->tx_resources.channel, spd);
-		if (err < 0)
-			goto error;
-
-		err = amdtp_domain_start(&ff->domain);
+		err = amdtp_stream_start(&ff->rx_stream,
+					 ff->rx_resources.channel,
+					 fw_parent_device(ff->unit)->max_speed);
 		if (err < 0)
 			goto error;
 
 		if (!amdtp_stream_wait_callback(&ff->rx_stream,
-						CALLBACK_TIMEOUT_MS) ||
-		    !amdtp_stream_wait_callback(&ff->tx_stream,
 						CALLBACK_TIMEOUT_MS)) {
 			err = -ETIMEDOUT;
 			goto error;
@@ -206,9 +185,22 @@ int snd_ff_stream_start_duplex(struct snd_ff *ff, unsigned int rate)
 			goto error;
 	}
 
+	if (!amdtp_stream_running(&ff->tx_stream)) {
+		err = amdtp_stream_start(&ff->tx_stream,
+					 ff->tx_resources.channel,
+					 fw_parent_device(ff->unit)->max_speed);
+		if (err < 0)
+			goto error;
+
+		if (!amdtp_stream_wait_callback(&ff->tx_stream,
+						CALLBACK_TIMEOUT_MS)) {
+			err = -ETIMEDOUT;
+			goto error;
+		}
+	}
+
 	return 0;
 error:
-	amdtp_domain_stop(&ff->domain);
 	finish_session(ff);
 
 	return err;
@@ -217,7 +209,6 @@ error:
 void snd_ff_stream_stop_duplex(struct snd_ff *ff)
 {
 	if (ff->substreams_counter == 0) {
-		amdtp_domain_stop(&ff->domain);
 		finish_session(ff);
 
 		fw_iso_resources_free(&ff->tx_resources);
@@ -227,11 +218,12 @@ void snd_ff_stream_stop_duplex(struct snd_ff *ff)
 
 void snd_ff_stream_update_duplex(struct snd_ff *ff)
 {
-	amdtp_domain_stop(&ff->domain);
-
 	// The device discontinue to transfer packets.
 	amdtp_stream_pcm_abort(&ff->tx_stream);
+	amdtp_stream_stop(&ff->tx_stream);
+
 	amdtp_stream_pcm_abort(&ff->rx_stream);
+	amdtp_stream_stop(&ff->rx_stream);
 }
 
 void snd_ff_stream_lock_changed(struct snd_ff *ff)

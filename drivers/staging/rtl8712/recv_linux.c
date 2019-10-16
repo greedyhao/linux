@@ -29,23 +29,24 @@
 
 /*init os related resource in struct recv_priv*/
 /*alloc os related resource in union recv_frame*/
-void r8712_os_recv_resource_alloc(struct _adapter *padapter,
-				  union recv_frame *precvframe)
+int r8712_os_recv_resource_alloc(struct _adapter *padapter,
+				 union recv_frame *precvframe)
 {
 	precvframe->u.hdr.pkt_newalloc = NULL;
 	precvframe->u.hdr.pkt = NULL;
+	return _SUCCESS;
 }
 
 /*alloc os related resource in struct recv_buf*/
 int r8712_os_recvbuf_resource_alloc(struct _adapter *padapter,
 				    struct recv_buf *precvbuf)
 {
-	int res = 0;
+	int res = _SUCCESS;
 
 	precvbuf->irp_pending = false;
 	precvbuf->purb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!precvbuf->purb)
-		res = -ENOMEM;
+		res = _FAIL;
 	precvbuf->pskb = NULL;
 	precvbuf->pallocated_buf = NULL;
 	precvbuf->pbuf = NULL;
@@ -59,8 +60,8 @@ int r8712_os_recvbuf_resource_alloc(struct _adapter *padapter,
 }
 
 /*free os related resource in struct recv_buf*/
-void r8712_os_recvbuf_resource_free(struct _adapter *padapter,
-				    struct recv_buf *precvbuf)
+int r8712_os_recvbuf_resource_free(struct _adapter *padapter,
+			     struct recv_buf *precvbuf)
 {
 	if (precvbuf->pskb)
 		dev_kfree_skb_any(precvbuf->pskb);
@@ -68,6 +69,7 @@ void r8712_os_recvbuf_resource_free(struct _adapter *padapter,
 		usb_kill_urb(precvbuf->purb);
 		usb_free_urb(precvbuf->purb);
 	}
+	return _SUCCESS;
 }
 
 void r8712_handle_tkip_mic_err(struct _adapter *adapter, u8 bgroup)
@@ -113,8 +115,8 @@ void r8712_recv_indicatepkt(struct _adapter *adapter,
 	skb->protocol = eth_type_trans(skb, adapter->pnetdev);
 	netif_rx(skb);
 	recvframe->u.hdr.pkt = NULL; /* pointers to NULL before
-				      * r8712_free_recvframe()
-				      */
+					* r8712_free_recvframe()
+					*/
 	r8712_free_recvframe(recvframe, free_recv_queue);
 	return;
 _recv_indicatepkt_drop:

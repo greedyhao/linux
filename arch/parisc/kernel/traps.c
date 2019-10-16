@@ -29,7 +29,6 @@
 #include <linux/bug.h>
 #include <linux/ratelimit.h>
 #include <linux/uaccess.h>
-#include <linux/kdebug.h>
 
 #include <asm/assembly.h>
 #include <asm/io.h>
@@ -415,7 +414,6 @@ void parisc_terminate(char *msg, struct pt_regs *regs, int code, unsigned long o
 {
 	static DEFINE_SPINLOCK(terminate_lock);
 
-	(void)notify_die(DIE_OOPS, msg, regs, 0, code, SIGTRAP);
 	bust_spinlocks(1);
 
 	set_eiem(0);

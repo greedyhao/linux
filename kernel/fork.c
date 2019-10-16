@@ -125,15 +125,6 @@ int nr_threads;			/* The idle threads do not count.. */
 
 static int max_threads;		/* tunable limit on nr_threads */
 
-#define NAMED_ARRAY_INDEX(x)	[x] = __stringify(x)
-
-static const char * const resident_page_types[] = {
-	NAMED_ARRAY_INDEX(MM_FILEPAGES),
-	NAMED_ARRAY_INDEX(MM_ANONPAGES),
-	NAMED_ARRAY_INDEX(MM_SWAPENTS),
-	NAMED_ARRAY_INDEX(MM_SHMEMPAGES),
-};
-
 DEFINE_PER_CPU(unsigned long, process_counts) = 0;
 
 __cacheline_aligned DEFINE_RWLOCK(tasklist_lock);  /* outer */
@@ -654,15 +645,12 @@ static void check_mm(struct mm_struct *mm)
 {
 	int i;
 
-	BUILD_BUG_ON_MSG(ARRAY_SIZE(resident_page_types) != NR_MM_COUNTERS,
-			 "Please make sure 'struct resident_page_types[]' is updated as well");
-
 	for (i = 0; i < NR_MM_COUNTERS; i++) {
 		long x = atomic_long_read(&mm->rss_stat.count[i]);
 
 		if (unlikely(x))
-			pr_alert("BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
-				 mm, resident_page_types[i], x);
+			printk(KERN_ALERT "BUG: Bad rss-counter state "
+					  "mm:%p idx:%d val:%ld\n", mm, i, x);
 	}
 
 	if (mm_pgtables_bytes(mm))
@@ -738,7 +726,7 @@ void __put_task_struct(struct task_struct *tsk)
 	WARN_ON(tsk == current);
 
 	cgroup_free(tsk);
-	task_numa_free(tsk, true);
+	task_numa_free(tsk);
 	security_task_free(tsk);
 	exit_creds(tsk);
 	delayacct_tsk_free(tsk);
@@ -780,7 +768,6 @@ static void set_max_threads(unsigned int max_threads_suggested)
 int arch_task_struct_size __read_mostly;
 #endif
 
-#ifndef CONFIG_ARCH_TASK_STRUCT_ALLOCATOR
 static void task_struct_whitelist(unsigned long *offset, unsigned long *size)
 {
 	/* Fetch thread_struct whitelist for the architecture. */
@@ -795,7 +782,6 @@ static void task_struct_whitelist(unsigned long *offset, unsigned long *size)
 	else
 		*offset += offsetof(struct task_struct, thread);
 }
-#endif /* CONFIG_ARCH_TASK_STRUCT_ALLOCATOR */
 
 void __init fork_init(void)
 {
@@ -915,12 +901,10 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 		tsk->cpus_ptr = &tsk->cpus_mask;
 
 	/*
-	 * One for the user space visible state that goes away when reaped.
-	 * One for the scheduler.
+	 * One for us, one for whoever does the "release_task()" (usually
+	 * parent)
 	 */
-	refcount_set(&tsk->rcu_users, 2);
-	/* One for the rcu users */
-	refcount_set(&tsk->usage, 1);
+	refcount_set(&tsk->usage, 2);
 #ifdef CONFIG_BLK_DEV_IO_TRACE
 	tsk->btrace_seq = 0;
 #endif
@@ -1023,6 +1007,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	mm_init_owner(mm, p);
 	RCU_INIT_POINTER(mm->exe_file, NULL);
 	mmu_notifier_mm_init(mm);
+	hmm_mm_init(mm);
 	init_tlb_flush_pending(mm);
 #if defined(CONFIG_TRANSPARENT_HUGEPAGE) && !USE_SPLIT_PMD_PTLOCKS
 	mm->pmd_huge_pte = NULL;
@@ -1532,17 +1517,28 @@ void __cleanup_sighand(struct sighand_struct *sighand)
 	}
 }
 
+#ifdef CONFIG_POSIX_TIMERS
 /*
  * Initialize POSIX timer handling for a thread group.
  */
 static void posix_cpu_timers_init_group(struct signal_struct *sig)
 {
-	struct posix_cputimers *pct = &sig->posix_cputimers;
 	unsigned long cpu_limit;
 
 	cpu_limit = READ_ONCE(sig->rlim[RLIMIT_CPU].rlim_cur);
-	posix_cputimers_group_init(pct, cpu_limit);
+	if (cpu_limit != RLIM_INFINITY) {
+		sig->cputime_expires.prof_exp = cpu_limit * NSEC_PER_SEC;
+		sig->cputimer.running = true;
+	}
+
+	/* The timer lists. */
+	INIT_LIST_HEAD(&sig->cpu_timers[0]);
+	INIT_LIST_HEAD(&sig->cpu_timers[1]);
+	INIT_LIST_HEAD(&sig->cpu_timers[2]);
 }
+#else
+static inline void posix_cpu_timers_init_group(struct signal_struct *sig) { }
+#endif
 
 static int copy_signal(unsigned long clone_flags, struct task_struct *tsk)
 {
@@ -1644,6 +1640,23 @@ static void rt_mutex_init_task(struct task_struct *p)
 #endif
 }
 
+#ifdef CONFIG_POSIX_TIMERS
+/*
+ * Initialize POSIX timer handling for a single task.
+ */
+static void posix_cpu_timers_init(struct task_struct *tsk)
+{
+	tsk->cputime_expires.prof_exp = 0;
+	tsk->cputime_expires.virt_exp = 0;
+	tsk->cputime_expires.sched_exp = 0;
+	INIT_LIST_HEAD(&tsk->cpu_timers[0]);
+	INIT_LIST_HEAD(&tsk->cpu_timers[1]);
+	INIT_LIST_HEAD(&tsk->cpu_timers[2]);
+}
+#else
+static inline void posix_cpu_timers_init(struct task_struct *tsk) { }
+#endif
+
 static inline void init_task_pid_links(struct task_struct *task)
 {
 	enum pid_type type;
@@ -1675,14 +1688,6 @@ static inline void rcu_copy_process(struct task_struct *p)
 	INIT_LIST_HEAD(&p->rcu_tasks_holdout_list);
 	p->rcu_tasks_idle_cpu = -1;
 #endif /* #ifdef CONFIG_TASKS_RCU */
-}
-
-struct pid *pidfd_pid(const struct file *file)
-{
-	if (file->f_op == &pidfd_fops)
-		return file->private_data;
-
-	return ERR_PTR(-EBADF);
 }
 
 static int pidfd_release(struct inode *inode, struct file *file)
@@ -1930,7 +1935,7 @@ static __latent_entropy struct task_struct *copy_process(
 	task_io_accounting_init(&p->ioac);
 	acct_clear_integrals(p);
 
-	posix_cputimers_init(&p->posix_cputimers);
+	posix_cpu_timers_init(p);
 
 	p->io_context = NULL;
 	audit_set_context(p, NULL);
@@ -2333,8 +2338,6 @@ struct mm_struct *copy_init_mm(void)
  *
  * It copies the process, and if successful kick-starts
  * it and waits for it to finish using the VM if required.
- *
- * args->exit_signal is expected to be checked for sanity by the caller.
  */
 long _do_fork(struct kernel_clone_args *args)
 {
@@ -2402,16 +2405,6 @@ long _do_fork(struct kernel_clone_args *args)
 	return nr;
 }
 
-bool legacy_clone_args_valid(const struct kernel_clone_args *kargs)
-{
-	/* clone(CLONE_PIDFD) uses parent_tidptr to return a pidfd */
-	if ((kargs->flags & CLONE_PIDFD) &&
-	    (kargs->flags & CLONE_PARENT_SETTID))
-		return false;
-
-	return true;
-}
-
 #ifndef CONFIG_HAVE_COPY_THREAD_TLS
 /* For compatibility with architectures that call do_fork directly rather than
  * using the syscall entry points below. */
@@ -2423,16 +2416,12 @@ long do_fork(unsigned long clone_flags,
 {
 	struct kernel_clone_args args = {
 		.flags		= (clone_flags & ~CSIGNAL),
-		.pidfd		= parent_tidptr,
 		.child_tid	= child_tidptr,
 		.parent_tid	= parent_tidptr,
 		.exit_signal	= (clone_flags & CSIGNAL),
 		.stack		= stack_start,
 		.stack_size	= stack_size,
 	};
-
-	if (!legacy_clone_args_valid(&args))
-		return -EINVAL;
 
 	return _do_fork(&args);
 }
@@ -2515,7 +2504,8 @@ SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
 		.tls		= tls,
 	};
 
-	if (!legacy_clone_args_valid(&args))
+	/* clone(CLONE_PIDFD) uses parent_tidptr to return a pidfd */
+	if ((clone_flags & CLONE_PIDFD) && (clone_flags & CLONE_PARENT_SETTID))
 		return -EINVAL;
 
 	return _do_fork(&args);
@@ -2525,27 +2515,39 @@ SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
 #ifdef __ARCH_WANT_SYS_CLONE3
 noinline static int copy_clone_args_from_user(struct kernel_clone_args *kargs,
 					      struct clone_args __user *uargs,
-					      size_t usize)
+					      size_t size)
 {
-	int err;
 	struct clone_args args;
 
-	if (unlikely(usize > PAGE_SIZE))
+	if (unlikely(size > PAGE_SIZE))
 		return -E2BIG;
-	if (unlikely(usize < CLONE_ARGS_SIZE_VER0))
+
+	if (unlikely(size < sizeof(struct clone_args)))
 		return -EINVAL;
 
-	err = copy_struct_from_user(&args, sizeof(args), uargs, usize);
-	if (err)
-		return err;
+	if (unlikely(!access_ok(uargs, size)))
+		return -EFAULT;
 
-	/*
-	 * Verify that higher 32bits of exit_signal are unset and that
-	 * it is a valid signal
-	 */
-	if (unlikely((args.exit_signal & ~((u64)CSIGNAL)) ||
-		     !valid_signal(args.exit_signal)))
-		return -EINVAL;
+	if (size > sizeof(struct clone_args)) {
+		unsigned char __user *addr;
+		unsigned char __user *end;
+		unsigned char val;
+
+		addr = (void __user *)uargs + sizeof(struct clone_args);
+		end = (void __user *)uargs + size;
+
+		for (; addr < end; addr++) {
+			if (get_user(val, addr))
+				return -EFAULT;
+			if (val)
+				return -E2BIG;
+		}
+
+		size = sizeof(struct clone_args);
+	}
+
+	if (copy_from_user(&args, uargs, size))
+		return -EFAULT;
 
 	*kargs = (struct kernel_clone_args){
 		.flags		= args.flags,
@@ -2584,17 +2586,6 @@ static bool clone3_args_valid(const struct kernel_clone_args *kargs)
 	return true;
 }
 
-/**
- * clone3 - create a new process with specific properties
- * @uargs: argument structure
- * @size:  size of @uargs
- *
- * clone3() is the extensible successor to clone()/clone2().
- * It takes a struct as argument that is versioned by its size.
- *
- * Return: On success, a positive PID for the child process.
- *         On error, a negative errno number.
- */
 SYSCALL_DEFINE2(clone3, struct clone_args __user *, uargs, size_t, size)
 {
 	int err;
@@ -2925,7 +2916,7 @@ int sysctl_max_threads(struct ctl_table *table, int write,
 	struct ctl_table t;
 	int ret;
 	int threads = max_threads;
-	int min = 1;
+	int min = MIN_THREADS;
 	int max = MAX_THREADS;
 
 	t = *table;
@@ -2937,7 +2928,7 @@ int sysctl_max_threads(struct ctl_table *table, int write,
 	if (ret || !write)
 		return ret;
 
-	max_threads = threads;
+	set_max_threads(threads);
 
 	return 0;
 }

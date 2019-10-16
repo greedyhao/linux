@@ -706,7 +706,7 @@ resume:
 	if (err)
 		goto drop;
 
-	nf_reset_ct(skb);
+	nf_reset(skb);
 
 	if (decaps) {
 		sp = skb_sec_path(skb);

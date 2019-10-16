@@ -151,12 +151,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "cpumap.h"
 #include "color.h"
 #include "evsel.h"
 #include "evlist.h"
 #include "machine.h"
 #include "session.h"
-#include "tool.h"
+#include "thread.h"
 #include "debug.h"
 #include "auxtrace.h"
 #include "s390-cpumsf.h"
@@ -917,7 +918,7 @@ s390_cpumsf_process_event(struct perf_session *session,
 					      struct s390_cpumsf,
 					      auxtrace);
 	u64 timestamp = sample->time;
-	struct evsel *ev_bc000;
+	struct perf_evsel *ev_bc000;
 
 	int err = 0;
 
@@ -934,7 +935,7 @@ s390_cpumsf_process_event(struct perf_session *session,
 		/* Handle event with raw data */
 		ev_bc000 = perf_evlist__event2evsel(session->evlist, event);
 		if (ev_bc000 &&
-		    ev_bc000->core.attr.config == PERF_EVENT_CPUM_CF_DIAG)
+		    ev_bc000->attr.config == PERF_EVENT_CPUM_CF_DIAG)
 			err = s390_cpumcf_dumpctr(sf, sample);
 		return err;
 	}
@@ -1108,11 +1109,11 @@ static int s390_cpumsf__config(const char *var, const char *value, void *cb)
 int s390_cpumsf_process_auxtrace_info(union perf_event *event,
 				      struct perf_session *session)
 {
-	struct perf_record_auxtrace_info *auxtrace_info = &event->auxtrace_info;
+	struct auxtrace_info_event *auxtrace_info = &event->auxtrace_info;
 	struct s390_cpumsf *sf;
 	int err;
 
-	if (auxtrace_info->header.size < sizeof(struct perf_record_auxtrace_info))
+	if (auxtrace_info->header.size < sizeof(struct auxtrace_info_event))
 		return -EINVAL;
 
 	sf = zalloc(sizeof(struct s390_cpumsf));

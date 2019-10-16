@@ -937,7 +937,8 @@ static void e1000_free_desc_rings(struct e1000_adapter *adapter)
 						 txdr->buffer_info[i].dma,
 						 txdr->buffer_info[i].length,
 						 DMA_TO_DEVICE);
-			dev_kfree_skb(txdr->buffer_info[i].skb);
+			if (txdr->buffer_info[i].skb)
+				dev_kfree_skb(txdr->buffer_info[i].skb);
 		}
 	}
 

@@ -8,8 +8,7 @@ Overview
 ========
 
 phylink is a mechanism to support hot-pluggable networking modules
-directly connected to a MAC without needing to re-initialise the
-adapter on hot-plug events.
+without needing to re-initialise the adapter on hot-plug events.
 
 phylink supports conventional phylib-based setups, fixed link setups
 and SFP (Small Formfactor Pluggable) modules at present.

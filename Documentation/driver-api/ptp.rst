@@ -1,4 +1,4 @@
-.. SPDX-License-Identifier: GPL-2.0
+:orphan:
 
 ===========================================
 PTP hardware clock infrastructure for Linux

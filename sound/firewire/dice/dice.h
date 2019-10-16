@@ -112,8 +112,6 @@ struct snd_dice {
 	bool global_enabled;
 	struct completion clock_accepted;
 	unsigned int substreams_counter;
-
-	struct amdtp_domain domain;
 };
 
 enum snd_dice_addr_type {

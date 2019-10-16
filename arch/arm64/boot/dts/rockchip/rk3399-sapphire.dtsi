@@ -565,11 +565,12 @@
 	status = "okay";
 
 	u2phy0_otg: otg-port {
+		phy-supply = <&vcc5v0_typec0>;
 		status = "okay";
 	};
 
 	u2phy0_host: host-port {
-		phy-supply = <&vcc5v0_typec0>;
+		phy-supply = <&vcc5v0_host>;
 		status = "okay";
 	};
 };
@@ -619,7 +620,7 @@
 
 &usbdrd_dwc3_0 {
 	status = "okay";
-	dr_mode = "host";
+	dr_mode = "otg";
 };
 
 &usbdrd3_1 {

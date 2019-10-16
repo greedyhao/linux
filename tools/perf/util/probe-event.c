@@ -19,17 +19,17 @@
 #include <limits.h>
 #include <elf.h>
 
-#include "build-id.h"
 #include "event.h"
 #include "namespaces.h"
 #include "strlist.h"
 #include "strfilter.h"
 #include "debug.h"
-#include "dso.h"
+#include "cache.h"
 #include "color.h"
 #include "map.h"
 #include "map_groups.h"
 #include "symbol.h"
+#include "thread.h"
 #include <api/fs/fs.h>
 #include "trace-event.h"	/* For __maybe_unused */
 #include "probe-event.h"
@@ -37,9 +37,7 @@
 #include "probe-file.h"
 #include "session.h"
 #include "string2.h"
-#include "strbuf.h"
 
-#include <subcmd/pager.h>
 #include <linux/ctype.h>
 #include <linux/zalloc.h>
 
@@ -1564,17 +1562,6 @@ static int parse_perf_probe_arg(char *str, struct perf_probe_arg *arg)
 		str = tmp + 1;
 	}
 
-	tmp = strchr(str, '@');
-	if (tmp && tmp != str && strcmp(tmp + 1, "user")) { /* user attr */
-		if (!user_access_is_supported()) {
-			semantic_error("ftrace does not support user access\n");
-			return -EINVAL;
-		}
-		*tmp = '\0';
-		arg->user_access = true;
-		pr_debug("user_access ");
-	}
-
 	tmp = strchr(str, ':');
 	if (tmp) {	/* Type setting */
 		*tmp = '\0';
@@ -2232,7 +2219,6 @@ void clear_perf_probe_event(struct perf_probe_event *pev)
 			field = next;
 		}
 	}
-	pev->nargs = 0;
 	zfree(&pev->args);
 }
 
@@ -2331,7 +2317,6 @@ void clear_probe_trace_event(struct probe_trace_event *tev)
 		}
 	}
 	zfree(&tev->args);
-	tev->nargs = 0;
 }
 
 struct kprobe_blacklist_node {

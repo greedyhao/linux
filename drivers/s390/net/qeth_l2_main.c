@@ -175,8 +175,10 @@ static void qeth_l2_fill_header(struct qeth_qdio_out_q *queue,
 		hdr->hdr.l2.id = QETH_HEADER_TYPE_L2_TSO;
 	} else {
 		hdr->hdr.l2.id = QETH_HEADER_TYPE_LAYER2;
-		if (skb->ip_summed == CHECKSUM_PARTIAL)
+		if (skb->ip_summed == CHECKSUM_PARTIAL) {
 			qeth_tx_csum(skb, &hdr->hdr.l2.flags[1], ipv);
+			QETH_TXQ_STAT_INC(queue, skbs_csum);
+		}
 	}
 
 	/* set byte byte 3 to casting flags */
@@ -331,7 +333,7 @@ static int qeth_l2_process_inbound_buffer(struct qeth_card *card,
 				card->osn_info.data_cb(skb);
 				break;
 			}
-			/* Else, fall through */
+			/* else unknown */
 		default:
 			dev_kfree_skb_any(skb);
 			QETH_CARD_TEXT(card, 3, "inbunkno");
@@ -437,14 +439,23 @@ static int qeth_l2_set_mac_address(struct net_device *dev, void *p)
 	return 0;
 }
 
-static void qeth_l2_promisc_to_bridge(struct qeth_card *card, bool enable)
+static void qeth_promisc_to_bridge(struct qeth_card *card)
 {
+	struct net_device *dev = card->dev;
+	enum qeth_ipa_promisc_modes promisc_mode;
 	int role;
 	int rc;
 
 	QETH_CARD_TEXT(card, 3, "pmisc2br");
 
-	if (enable) {
+	if (!card->options.sbp.reflect_promisc)
+		return;
+	promisc_mode = (dev->flags & IFF_PROMISC) ? SET_PROMISC_MODE_ON
+						: SET_PROMISC_MODE_OFF;
+	if (promisc_mode == card->info.promisc_mode)
+		return;
+
+	if (promisc_mode == SET_PROMISC_MODE_ON) {
 		if (card->options.sbp.reflect_promisc_primary)
 			role = QETH_SBP_ROLE_PRIMARY;
 		else
@@ -453,26 +464,14 @@ static void qeth_l2_promisc_to_bridge(struct qeth_card *card, bool enable)
 		role = QETH_SBP_ROLE_NONE;
 
 	rc = qeth_bridgeport_setrole(card, role);
-	QETH_CARD_TEXT_(card, 2, "bpm%c%04x", enable ? '+' : '-', rc);
+	QETH_CARD_TEXT_(card, 2, "bpm%c%04x",
+			(promisc_mode == SET_PROMISC_MODE_ON) ? '+' : '-', rc);
 	if (!rc) {
 		card->options.sbp.role = role;
-		card->info.promisc_mode = enable;
+		card->info.promisc_mode = promisc_mode;
 	}
+
 }
-
-static void qeth_l2_set_promisc_mode(struct qeth_card *card)
-{
-	bool enable = card->dev->flags & IFF_PROMISC;
-
-	if (card->info.promisc_mode == enable)
-		return;
-
-	if (qeth_adp_supported(card, IPA_SETADP_SET_PROMISC_MODE))
-		qeth_setadp_promisc_mode(card, enable);
-	else if (card->options.sbp.reflect_promisc)
-		qeth_l2_promisc_to_bridge(card, enable);
-}
-
 /* New MAC address is added to the hash table and marked to be written on card
  * only if there is not in the hash table storage already
  *
@@ -540,7 +539,10 @@ static void qeth_l2_rx_mode_work(struct work_struct *work)
 		}
 	}
 
-	qeth_l2_set_promisc_mode(card);
+	if (qeth_adp_supported(card, IPA_SETADP_SET_PROMISC_MODE))
+		qeth_setadp_promisc_mode(card);
+	else
+		qeth_promisc_to_bridge(card);
 }
 
 static int qeth_l2_xmit_osn(struct qeth_card *card, struct sk_buff *skb,
@@ -586,10 +588,9 @@ static netdev_tx_t qeth_l2_hard_start_xmit(struct sk_buff *skb,
 	struct qeth_card *card = dev->ml_priv;
 	u16 txq = skb_get_queue_mapping(skb);
 	struct qeth_qdio_out_q *queue;
+	int tx_bytes = skb->len;
 	int rc;
 
-	if (!skb_is_gso(skb))
-		qdisc_skb_cb(skb)->pkt_len = skb->len;
 	if (IS_IQD(card))
 		txq = qeth_iqd_translate_txq(dev, txq);
 	queue = card->qdio.out_qs[txq];
@@ -600,8 +601,11 @@ static netdev_tx_t qeth_l2_hard_start_xmit(struct sk_buff *skb,
 		rc = qeth_xmit(card, skb, queue, qeth_get_ip_version(skb),
 			       qeth_l2_fill_header);
 
-	if (!rc)
+	if (!rc) {
+		QETH_TXQ_STAT_INC(queue, tx_packets);
+		QETH_TXQ_STAT_ADD(queue, tx_bytes, tx_bytes);
 		return NETDEV_TX_OK;
+	}
 
 	QETH_TXQ_STAT_INC(queue, tx_dropped);
 	kfree_skb(skb);
@@ -996,10 +1000,9 @@ struct qeth_discipline qeth_l2_discipline = {
 EXPORT_SYMBOL_GPL(qeth_l2_discipline);
 
 static void qeth_osn_assist_cb(struct qeth_card *card,
-			       struct qeth_cmd_buffer *iob,
-			       unsigned int data_length)
+			       struct qeth_cmd_buffer *iob)
 {
-	qeth_notify_cmd(iob, 0);
+	qeth_notify_reply(iob->reply, 0);
 	qeth_put_cmd(iob);
 }
 
@@ -1700,6 +1703,7 @@ static int qeth_l2_vnicc_makerc(struct qeth_card *card, u16 ipa_rc)
 
 /* generic VNICC request call back control */
 struct _qeth_l2_vnicc_request_cbctl {
+	u32 sub_cmd;
 	struct {
 		union{
 			u32 *sup_cmds;
@@ -1717,7 +1721,6 @@ static int qeth_l2_vnicc_request_cb(struct qeth_card *card,
 		(struct _qeth_l2_vnicc_request_cbctl *) reply->param;
 	struct qeth_ipa_cmd *cmd = (struct qeth_ipa_cmd *) data;
 	struct qeth_ipacmd_vnicc *rep = &cmd->data.vnicc;
-	u32 sub_cmd = cmd->data.vnicc.hdr.sub_command;
 
 	QETH_CARD_TEXT(card, 2, "vniccrcb");
 	if (cmd->hdr.return_code)
@@ -1726,9 +1729,10 @@ static int qeth_l2_vnicc_request_cb(struct qeth_card *card,
 	card->options.vnicc.sup_chars = rep->vnicc_cmds.supported;
 	card->options.vnicc.cur_chars = rep->vnicc_cmds.enabled;
 
-	if (sub_cmd == IPA_VNICC_QUERY_CMDS)
+	if (cbctl->sub_cmd == IPA_VNICC_QUERY_CMDS)
 		*cbctl->result.sup_cmds = rep->data.query_cmds.sup_cmds;
-	else if (sub_cmd == IPA_VNICC_GET_TIMEOUT)
+
+	if (cbctl->sub_cmd == IPA_VNICC_GET_TIMEOUT)
 		*cbctl->result.timeout = rep->data.getset_timeout.timeout;
 
 	return 0;
@@ -1756,6 +1760,7 @@ static struct qeth_cmd_buffer *qeth_l2_vnicc_build_cmd(struct qeth_card *card,
 /* VNICC query VNIC characteristics request */
 static int qeth_l2_vnicc_query_chars(struct qeth_card *card)
 {
+	struct _qeth_l2_vnicc_request_cbctl cbctl;
 	struct qeth_cmd_buffer *iob;
 
 	QETH_CARD_TEXT(card, 2, "vniccqch");
@@ -1763,7 +1768,10 @@ static int qeth_l2_vnicc_query_chars(struct qeth_card *card)
 	if (!iob)
 		return -ENOMEM;
 
-	return qeth_send_ipa_cmd(card, iob, qeth_l2_vnicc_request_cb, NULL);
+	/* prepare callback control */
+	cbctl.sub_cmd = IPA_VNICC_QUERY_CHARS;
+
+	return qeth_send_ipa_cmd(card, iob, qeth_l2_vnicc_request_cb, &cbctl);
 }
 
 /* VNICC query sub commands request */
@@ -1782,6 +1790,7 @@ static int qeth_l2_vnicc_query_cmds(struct qeth_card *card, u32 vnic_char,
 	__ipa_cmd(iob)->data.vnicc.data.query_cmds.vnic_char = vnic_char;
 
 	/* prepare callback control */
+	cbctl.sub_cmd = IPA_VNICC_QUERY_CMDS;
 	cbctl.result.sup_cmds = sup_cmds;
 
 	return qeth_send_ipa_cmd(card, iob, qeth_l2_vnicc_request_cb, &cbctl);
@@ -1791,6 +1800,7 @@ static int qeth_l2_vnicc_query_cmds(struct qeth_card *card, u32 vnic_char,
 static int qeth_l2_vnicc_set_char(struct qeth_card *card, u32 vnic_char,
 				      u32 cmd)
 {
+	struct _qeth_l2_vnicc_request_cbctl cbctl;
 	struct qeth_cmd_buffer *iob;
 
 	QETH_CARD_TEXT(card, 2, "vniccedc");
@@ -1800,7 +1810,10 @@ static int qeth_l2_vnicc_set_char(struct qeth_card *card, u32 vnic_char,
 
 	__ipa_cmd(iob)->data.vnicc.data.set_char.vnic_char = vnic_char;
 
-	return qeth_send_ipa_cmd(card, iob, qeth_l2_vnicc_request_cb, NULL);
+	/* prepare callback control */
+	cbctl.sub_cmd = cmd;
+
+	return qeth_send_ipa_cmd(card, iob, qeth_l2_vnicc_request_cb, &cbctl);
 }
 
 /* VNICC get/set timeout for characteristic request */
@@ -1824,6 +1837,7 @@ static int qeth_l2_vnicc_getset_timeout(struct qeth_card *card, u32 vnicc,
 		getset_timeout->timeout = *timeout;
 
 	/* prepare callback control */
+	cbctl.sub_cmd = cmd;
 	if (cmd == IPA_VNICC_GET_TIMEOUT)
 		cbctl.result.timeout = timeout;
 

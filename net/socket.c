@@ -73,7 +73,6 @@
 #include <linux/module.h>
 #include <linux/highmem.h>
 #include <linux/mount.h>
-#include <linux/pseudo_fs.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/compat.h>
@@ -339,22 +338,19 @@ static const struct xattr_handler *sockfs_xattr_handlers[] = {
 	NULL
 };
 
-static int sockfs_init_fs_context(struct fs_context *fc)
+static struct dentry *sockfs_mount(struct file_system_type *fs_type,
+			 int flags, const char *dev_name, void *data)
 {
-	struct pseudo_fs_context *ctx = init_pseudo(fc, SOCKFS_MAGIC);
-	if (!ctx)
-		return -ENOMEM;
-	ctx->ops = &sockfs_ops;
-	ctx->dops = &sockfs_dentry_operations;
-	ctx->xattr = sockfs_xattr_handlers;
-	return 0;
+	return mount_pseudo_xattr(fs_type, "socket:", &sockfs_ops,
+				  sockfs_xattr_handlers,
+				  &sockfs_dentry_operations, SOCKFS_MAGIC);
 }
 
 static struct vfsmount *sock_mnt __read_mostly;
 
 static struct file_system_type sock_fs_type = {
 	.name =		"sockfs",
-	.init_fs_context = sockfs_init_fs_context,
+	.mount =	sockfs_mount,
 	.kill_sb =	kill_anon_super,
 };
 

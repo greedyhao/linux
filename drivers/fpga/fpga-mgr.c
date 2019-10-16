@@ -482,6 +482,11 @@ struct fpga_manager *fpga_mgr_get(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(fpga_mgr_get);
 
+static int fpga_mgr_of_node_match(struct device *dev, const void *data)
+{
+	return dev->of_node == data;
+}
+
 /**
  * of_fpga_mgr_get - Given a device node, get a reference to a fpga mgr.
  *
@@ -493,7 +498,8 @@ struct fpga_manager *of_fpga_mgr_get(struct device_node *node)
 {
 	struct device *dev;
 
-	dev = class_find_device_by_of_node(fpga_mgr_class, node);
+	dev = class_find_device(fpga_mgr_class, NULL, node,
+				fpga_mgr_of_node_match);
 	if (!dev)
 		return ERR_PTR(-ENODEV);
 

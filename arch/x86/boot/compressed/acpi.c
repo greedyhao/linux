@@ -26,7 +26,7 @@ struct mem_vector immovable_mem[MAX_NUMNODES*2];
  */
 #define MAX_ADDR_LEN 19
 
-static acpi_physical_address get_cmdline_acpi_rsdp(void)
+static acpi_physical_address get_acpi_rsdp(void)
 {
 	acpi_physical_address addr = 0;
 
@@ -278,7 +278,10 @@ acpi_physical_address get_rsdp_addr(void)
 {
 	acpi_physical_address pa;
 
-	pa = boot_params->acpi_rsdp_addr;
+	pa = get_acpi_rsdp();
+
+	if (!pa)
+		pa = boot_params->acpi_rsdp_addr;
 
 	/*
 	 * Try to get EFI data from setup_data. This can happen when we're a
@@ -308,17 +311,7 @@ static unsigned long get_acpi_srat_table(void)
 	char arg[10];
 	u8 *entry;
 
-	/*
-	 * Check whether we were given an RSDP on the command line. We don't
-	 * stash this in boot params because the kernel itself may have
-	 * different ideas about whether to trust a command-line parameter.
-	 */
-	rsdp = (struct acpi_table_rsdp *)get_cmdline_acpi_rsdp();
-
-	if (!rsdp)
-		rsdp = (struct acpi_table_rsdp *)(long)
-			boot_params->acpi_rsdp_addr;
-
+	rsdp = (struct acpi_table_rsdp *)(long)boot_params->acpi_rsdp_addr;
 	if (!rsdp)
 		return 0;
 

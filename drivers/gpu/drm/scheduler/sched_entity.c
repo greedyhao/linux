@@ -22,9 +22,6 @@
  */
 
 #include <linux/kthread.h>
-#include <linux/slab.h>
-
-#include <drm/drm_print.h>
 #include <drm/gpu_scheduler.h>
 
 #include "gpu_scheduler_trace.h"
@@ -98,7 +95,7 @@ static bool drm_sched_entity_is_idle(struct drm_sched_entity *entity)
 	rmb(); /* for list_empty to work without lock */
 
 	if (list_empty(&entity->list) ||
-	    spsc_queue_count(&entity->job_queue) == 0)
+	    spsc_queue_peek(&entity->job_queue) == NULL)
 		return true;
 
 	return false;
@@ -284,7 +281,7 @@ void drm_sched_entity_fini(struct drm_sched_entity *entity)
 	/* Consumption of existing IBs wasn't completed. Forcefully
 	 * remove them here.
 	 */
-	if (spsc_queue_count(&entity->job_queue)) {
+	if (spsc_queue_peek(&entity->job_queue)) {
 		if (sched) {
 			/* Park the kernel for a moment to make sure it isn't processing
 			 * our enity.

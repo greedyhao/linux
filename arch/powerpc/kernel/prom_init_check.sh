@@ -33,7 +33,7 @@ OBJ="$2"
 
 ERROR=0
 
-check_section()
+function check_section()
 {
     file=$1
     section=$2

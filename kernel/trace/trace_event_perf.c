@@ -416,7 +416,8 @@ void perf_trace_buf_update(void *record, u16 type)
 	unsigned long flags;
 
 	local_save_flags(flags);
-	tracing_generic_entry_update(entry, type, flags, pc);
+	tracing_generic_entry_update(entry, flags, pc);
+	entry->type = type;
 }
 NOKPROBE_SYMBOL(perf_trace_buf_update);
 

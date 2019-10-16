@@ -137,7 +137,7 @@ xfs_bulkstat_one_int(
 	xfs_irele(ip);
 
 	error = bc->formatter(bc->breq, buf);
-	if (error == -ECANCELED)
+	if (error == XFS_IBULK_ABORT)
 		goto out_advance;
 	if (error)
 		goto out;
@@ -169,7 +169,7 @@ xfs_bulkstat_one(
 	ASSERT(breq->icount == 1);
 
 	bc.buf = kmem_zalloc(sizeof(struct xfs_bulkstat),
-			KM_MAYFAIL);
+			KM_SLEEP | KM_MAYFAIL);
 	if (!bc.buf)
 		return -ENOMEM;
 
@@ -181,7 +181,7 @@ xfs_bulkstat_one(
 	 * If we reported one inode to userspace then we abort because we hit
 	 * the end of the buffer.  Don't leak that back to userspace.
 	 */
-	if (error == -ECANCELED)
+	if (error == XFS_IWALK_ABORT)
 		error = 0;
 
 	return error;
@@ -243,7 +243,7 @@ xfs_bulkstat(
 		return 0;
 
 	bc.buf = kmem_zalloc(sizeof(struct xfs_bulkstat),
-			KM_MAYFAIL);
+			KM_SLEEP | KM_MAYFAIL);
 	if (!bc.buf)
 		return -ENOMEM;
 
@@ -272,7 +272,6 @@ xfs_bulkstat_to_bstat(
 	struct xfs_bstat		*bs1,
 	const struct xfs_bulkstat	*bstat)
 {
-	/* memset is needed here because of padding holes in the structure. */
 	memset(bs1, 0, sizeof(struct xfs_bstat));
 	bs1->bs_ino = bstat->bs_ino;
 	bs1->bs_mode = bstat->bs_mode;
@@ -342,7 +341,7 @@ xfs_inumbers_walk(
 	int			error;
 
 	error = ic->formatter(ic->breq, &inogrp);
-	if (error && error != -ECANCELED)
+	if (error && error != XFS_IBULK_ABORT)
 		return error;
 
 	ic->breq->startino = XFS_AGINO_TO_INO(mp, agno, irec->ir_startino) +
@@ -389,8 +388,6 @@ xfs_inumbers_to_inogrp(
 	struct xfs_inogrp		*ig1,
 	const struct xfs_inumbers	*ig)
 {
-	/* memset is needed here because of padding holes in the structure. */
-	memset(ig1, 0, sizeof(struct xfs_inogrp));
 	ig1->xi_startino = ig->xi_startino;
 	ig1->xi_alloccount = ig->xi_alloccount;
 	ig1->xi_allocmask = ig->xi_allocmask;

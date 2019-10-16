@@ -848,7 +848,6 @@ int conf_write(const char *name)
 	const char *str;
 	char tmpname[PATH_MAX + 1], oldname[PATH_MAX + 1];
 	char *env;
-	int i;
 	bool need_newline = false;
 
 	if (!name)
@@ -896,8 +895,7 @@ int conf_write(const char *name)
 				     "# %s\n"
 				     "#\n", str);
 			need_newline = false;
-		} else if (!(sym->flags & SYMBOL_CHOICE) &&
-			   !(sym->flags & SYMBOL_WRITTEN)) {
+		} else if (!(sym->flags & SYMBOL_CHOICE)) {
 			sym_calc_value(sym);
 			if (!(sym->flags & SYMBOL_WRITE))
 				goto next;
@@ -905,7 +903,7 @@ int conf_write(const char *name)
 				fprintf(out, "\n");
 				need_newline = false;
 			}
-			sym->flags |= SYMBOL_WRITTEN;
+			sym->flags &= ~SYMBOL_WRITE;
 			conf_write_symbol(out, sym, &kconfig_printer_cb, NULL);
 		}
 
@@ -930,9 +928,6 @@ next:
 		}
 	}
 	fclose(out);
-
-	for_all_symbols(i, sym)
-		sym->flags &= ~SYMBOL_WRITTEN;
 
 	if (*tmpname) {
 		if (is_same(name, tmpname)) {
@@ -1067,6 +1062,8 @@ int conf_write_autoconf(int overwrite)
 
 	if (!overwrite && is_present(autoconf_name))
 		return 0;
+
+	sym_clear_all_valid();
 
 	conf_write_dep("include/config/auto.conf.cmd");
 

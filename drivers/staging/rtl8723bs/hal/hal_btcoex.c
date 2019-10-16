@@ -389,6 +389,7 @@ static u8 halbtcoutsrc_Get(void *pBtcContext, u8 getType, void *pOutBuf)
 	u8 *pu8;
 	s32 *pS4Tmp;
 	u32 *pU4Tmp;
+	u8 *pU1Tmp;
 	u8 ret;
 
 
@@ -402,6 +403,7 @@ static u8 halbtcoutsrc_Get(void *pBtcContext, u8 getType, void *pOutBuf)
 	pu8 = pOutBuf;
 	pS4Tmp = pOutBuf;
 	pU4Tmp = pOutBuf;
+	pU1Tmp = pOutBuf;
 	ret = true;
 
 	switch (getType) {
@@ -482,8 +484,10 @@ static u8 halbtcoutsrc_Get(void *pBtcContext, u8 getType, void *pOutBuf)
 			*pU4Tmp = BTC_WIFI_BW_LEGACY;
 		else if (pHalData->CurrentChannelBW == CHANNEL_WIDTH_20)
 			*pU4Tmp = BTC_WIFI_BW_HT20;
-		else
+		else if (pHalData->CurrentChannelBW == CHANNEL_WIDTH_40)
 			*pU4Tmp = BTC_WIFI_BW_HT40;
+		else
+			*pU4Tmp = BTC_WIFI_BW_HT40; /* todo */
 		break;
 
 	case BTC_GET_U4_WIFI_TRAFFIC_DIRECTION:
@@ -512,32 +516,32 @@ static u8 halbtcoutsrc_Get(void *pBtcContext, u8 getType, void *pOutBuf)
 		break;
 
 	case BTC_GET_U1_WIFI_DOT11_CHNL:
-		*pu8 = padapter->mlmeextpriv.cur_channel;
+		*pU1Tmp = padapter->mlmeextpriv.cur_channel;
 		break;
 
 	case BTC_GET_U1_WIFI_CENTRAL_CHNL:
-		*pu8 = pHalData->CurrentChannel;
+		*pU1Tmp = pHalData->CurrentChannel;
 		break;
 
 	case BTC_GET_U1_WIFI_HS_CHNL:
-		*pu8 = 0;
+		*pU1Tmp = 0;
 		ret = false;
 		break;
 
 	case BTC_GET_U1_MAC_PHY_MODE:
-		*pu8 = BTC_SMSP;
+		*pU1Tmp = BTC_SMSP;
 /* 			*pU1Tmp = BTC_DMSP; */
 /* 			*pU1Tmp = BTC_DMDP; */
 /* 			*pU1Tmp = BTC_MP_UNKNOWN; */
 		break;
 
 	case BTC_GET_U1_AP_NUM:
-		*pu8 = halbtcoutsrc_GetWifiScanAPNum(padapter);
+		*pU1Tmp = halbtcoutsrc_GetWifiScanAPNum(padapter);
 		break;
 
 	/* 1Ant =========== */
 	case BTC_GET_U1_LPS_MODE:
-		*pu8 = padapter->dvobj->pwrctl_priv.pwr_mode;
+		*pU1Tmp = padapter->dvobj->pwrctl_priv.pwr_mode;
 		break;
 
 	default:
@@ -955,13 +959,9 @@ static u8 EXhalbtcoutsrc_BindBtCoexWithAdapter(void *padapter)
 	return true;
 }
 
-void hal_btcoex_Initialize(void *padapter)
+u8 EXhalbtcoutsrc_InitlizeVariables(void *padapter)
 {
-	PBTC_COEXIST pBtCoexist;
-
-	memset(&GLBtCoexist, 0, sizeof(GLBtCoexist));
-
-	pBtCoexist = &GLBtCoexist;
+	PBTC_COEXIST pBtCoexist = &GLBtCoexist;
 
 	/* pBtCoexist->statistics.cntBind++; */
 
@@ -1001,6 +1001,8 @@ void hal_btcoex_Initialize(void *padapter)
 	GLBtcWiFiInScanState = false;
 
 	GLBtcWiFiInIQKState = false;
+
+	return true;
 }
 
 void EXhalbtcoutsrc_PowerOnSetting(PBTC_COEXIST pBtCoexist)
@@ -1335,7 +1337,7 @@ void hal_btcoex_SetBTCoexist(struct adapter *padapter, u8 bBtExist)
  *true	Enable BT co-exist mechanism
  *false	Disable BT co-exist mechanism
  */
-bool hal_btcoex_IsBtExist(struct adapter *padapter)
+u8 hal_btcoex_IsBtExist(struct adapter *padapter)
 {
 	struct hal_com_data *pHalData;
 
@@ -1380,6 +1382,12 @@ void hal_btcoex_SetPgAntNum(struct adapter *padapter, u8 antNum)
 void hal_btcoex_SetSingleAntPath(struct adapter *padapter, u8 singleAntPath)
 {
 	EXhalbtcoutsrc_SetSingleAntPath(singleAntPath);
+}
+
+u8 hal_btcoex_Initialize(struct adapter *padapter)
+{
+	memset(&GLBtCoexist, 0, sizeof(GLBtCoexist));
+	return EXhalbtcoutsrc_InitlizeVariables((void *)padapter);
 }
 
 void hal_btcoex_PowerOnSetting(struct adapter *padapter)
@@ -1469,9 +1477,9 @@ void hal_btcoex_SetManualControl(struct adapter *padapter, u8 bmanual)
 	GLBtCoexist.bManualControl = bmanual;
 }
 
-bool hal_btcoex_IsBtControlLps(struct adapter *padapter)
+u8 hal_btcoex_IsBtControlLps(struct adapter *padapter)
 {
-	if (!hal_btcoex_IsBtExist(padapter))
+	if (hal_btcoex_IsBtExist(padapter) == false)
 		return false;
 
 	if (GLBtCoexist.btInfo.bBtDisabled)
@@ -1483,9 +1491,9 @@ bool hal_btcoex_IsBtControlLps(struct adapter *padapter)
 	return false;
 }
 
-bool hal_btcoex_IsLpsOn(struct adapter *padapter)
+u8 hal_btcoex_IsLpsOn(struct adapter *padapter)
 {
-	if (!hal_btcoex_IsBtExist(padapter))
+	if (hal_btcoex_IsBtExist(padapter) == false)
 		return false;
 
 	if (GLBtCoexist.btInfo.bBtDisabled)

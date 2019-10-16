@@ -37,6 +37,11 @@ static int coresight_alloc_conns(struct device *dev,
 	return 0;
 }
 
+int coresight_device_fwnode_match(struct device *dev, const void *fwnode)
+{
+	return dev_fwnode(dev) == fwnode;
+}
+
 static struct device *
 coresight_find_device_by_fwnode(struct fwnode_handle *fwnode)
 {
@@ -46,7 +51,8 @@ coresight_find_device_by_fwnode(struct fwnode_handle *fwnode)
 	 * If we have a non-configurable replicator, it will be found on the
 	 * platform bus.
 	 */
-	dev = bus_find_device_by_fwnode(&platform_bus_type, fwnode);
+	dev = bus_find_device(&platform_bus_type, NULL,
+			      fwnode, coresight_device_fwnode_match);
 	if (dev)
 		return dev;
 
@@ -54,7 +60,8 @@ coresight_find_device_by_fwnode(struct fwnode_handle *fwnode)
 	 * We have a configurable component - circle through the AMBA bus
 	 * looking for the device that matches the endpoint node.
 	 */
-	return bus_find_device_by_fwnode(&amba_bustype, fwnode);
+	return bus_find_device(&amba_bustype, NULL,
+			       fwnode, coresight_device_fwnode_match);
 }
 
 #ifdef CONFIG_OF

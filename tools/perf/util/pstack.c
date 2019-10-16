@@ -10,7 +10,6 @@
 #include <linux/kernel.h>
 #include <linux/zalloc.h>
 #include <stdlib.h>
-#include <string.h>
 
 struct pstack {
 	unsigned short	top;

@@ -2120,9 +2120,6 @@ static void setup_format_params(int track)
 	raw_cmd->kernel_data = floppy_track_buffer;
 	raw_cmd->length = 4 * F_SECT_PER_TRACK;
 
-	if (!F_SECT_PER_TRACK)
-		return;
-
 	/* allow for about 30ms for data transport per track */
 	head_shift = (F_SECT_PER_TRACK + 5) / 6;
 
@@ -3233,12 +3230,8 @@ static int set_geometry(unsigned int cmd, struct floppy_struct *g,
 	int cnt;
 
 	/* sanity checking for parameters. */
-	if ((int)g->sect <= 0 ||
-	    (int)g->head <= 0 ||
-	    /* check for overflow in max_sector */
-	    (int)(g->sect * g->head) <= 0 ||
-	    /* check for zero in F_SECT_PER_TRACK */
-	    (unsigned char)((g->sect << 2) >> FD_SIZECODE(g)) == 0 ||
+	if (g->sect <= 0 ||
+	    g->head <= 0 ||
 	    g->track <= 0 || g->track > UDP->tracks >> STRETCH(g) ||
 	    /* check if reserved bits are set */
 	    (g->stretch & ~(FD_STRETCH | FD_SWAPSIDES | FD_SECTBASEMASK)) != 0)
@@ -3382,24 +3375,6 @@ static int fd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return 0;
 }
 
-static bool valid_floppy_drive_params(const short autodetect[8],
-		int native_format)
-{
-	size_t floppy_type_size = ARRAY_SIZE(floppy_type);
-	size_t i = 0;
-
-	for (i = 0; i < 8; ++i) {
-		if (autodetect[i] < 0 ||
-		    autodetect[i] >= floppy_type_size)
-			return false;
-	}
-
-	if (native_format < 0 || native_format >= floppy_type_size)
-		return false;
-
-	return true;
-}
-
 static int fd_locked_ioctl(struct block_device *bdev, fmode_t mode, unsigned int cmd,
 		    unsigned long param)
 {
@@ -3526,9 +3501,6 @@ static int fd_locked_ioctl(struct block_device *bdev, fmode_t mode, unsigned int
 		SUPBOUND(size, strlen((const char *)outparam) + 1);
 		break;
 	case FDSETDRVPRM:
-		if (!valid_floppy_drive_params(inparam.dp.autodetect,
-				inparam.dp.native_format))
-			return -EINVAL;
 		*UDP = inparam.dp;
 		break;
 	case FDGETDRVPRM:
@@ -3726,8 +3698,6 @@ static int compat_setdrvprm(int drive,
 		return -EPERM;
 	if (copy_from_user(&v, arg, sizeof(struct compat_floppy_drive_params)))
 		return -EFAULT;
-	if (!valid_floppy_drive_params(v.autodetect, v.native_format))
-		return -EINVAL;
 	mutex_lock(&floppy_mutex);
 	UDP->cmos = v.cmos;
 	UDP->max_dtr = v.max_dtr;
@@ -3780,7 +3750,7 @@ static int compat_getdrvprm(int drive,
 	v.native_format = UDP->native_format;
 	mutex_unlock(&floppy_mutex);
 
-	if (copy_to_user(arg, &v, sizeof(struct compat_floppy_drive_params)))
+	if (copy_from_user(arg, &v, sizeof(struct compat_floppy_drive_params)))
 		return -EFAULT;
 	return 0;
 }
@@ -3816,7 +3786,7 @@ static int compat_getdrvstat(int drive, bool poll,
 	v.bufblocks = UDRS->bufblocks;
 	mutex_unlock(&floppy_mutex);
 
-	if (copy_to_user(arg, &v, sizeof(struct compat_floppy_drive_struct)))
+	if (copy_from_user(arg, &v, sizeof(struct compat_floppy_drive_struct)))
 		return -EFAULT;
 	return 0;
 Eintr:
@@ -4454,7 +4424,7 @@ static int __init floppy_setup(char *str)
 		pr_cont("\n");
 	} else
 		DPRINT("botched floppy option\n");
-	DPRINT("Read Documentation/admin-guide/blockdev/floppy.rst\n");
+	DPRINT("Read Documentation/blockdev/floppy.txt\n");
 	return 0;
 }
 

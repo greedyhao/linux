@@ -1106,10 +1106,7 @@ static int ov8856_check_hwcfg(struct device *dev)
 	if (!fwnode)
 		return -ENXIO;
 
-	ret = fwnode_property_read_u32(fwnode, "clock-frequency", &mclk);
-	if (ret)
-		return ret;
-
+	fwnode_property_read_u32(fwnode, "clock-frequency", &mclk);
 	if (mclk != OV8856_MCLK) {
 		dev_err(dev, "external clock %d is not supported", mclk);
 		return -EINVAL;

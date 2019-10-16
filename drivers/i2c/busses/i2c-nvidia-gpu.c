@@ -51,7 +51,6 @@ struct gpu_i2c_dev {
 	void __iomem *regs;
 	struct i2c_adapter adapter;
 	struct i2c_board_info *gpu_ccgx_ucsi;
-	struct i2c_client *ccgx_client;
 };
 
 static void gpu_enable_i2c_bus(struct gpu_i2c_dev *i2cd)
@@ -170,14 +169,12 @@ static int gpu_i2c_master_xfer(struct i2c_adapter *adap,
 {
 	struct gpu_i2c_dev *i2cd = i2c_get_adapdata(adap);
 	int status, status2;
-	bool send_stop = true;
 	int i, j;
 
 	/*
 	 * The controller supports maximum 4 byte read due to known
 	 * limitation of sending STOP after every read.
 	 */
-	pm_runtime_get_sync(i2cd->dev);
 	for (i = 0; i < num; i++) {
 		if (msgs[i].flags & I2C_M_RD) {
 			/* program client address before starting read */
@@ -185,42 +182,37 @@ static int gpu_i2c_master_xfer(struct i2c_adapter *adap,
 			/* gpu_i2c_read has implicit start */
 			status = gpu_i2c_read(i2cd, msgs[i].buf, msgs[i].len);
 			if (status < 0)
-				goto exit;
+				goto stop;
 		} else {
 			u8 addr = i2c_8bit_addr_from_msg(msgs + i);
 
 			status = gpu_i2c_start(i2cd);
 			if (status < 0) {
 				if (i == 0)
-					send_stop = false;
-				goto exit;
+					return status;
+				goto stop;
 			}
 
 			status = gpu_i2c_write(i2cd, addr);
 			if (status < 0)
-				goto exit;
+				goto stop;
 
 			for (j = 0; j < msgs[i].len; j++) {
 				status = gpu_i2c_write(i2cd, msgs[i].buf[j]);
 				if (status < 0)
-					goto exit;
+					goto stop;
 			}
 		}
 	}
-	send_stop = false;
 	status = gpu_i2c_stop(i2cd);
 	if (status < 0)
-		goto exit;
+		return status;
 
-	status = i;
-exit:
-	if (send_stop) {
-		status2 = gpu_i2c_stop(i2cd);
-		if (status2 < 0)
-			dev_err(i2cd->dev, "i2c stop failed %d\n", status2);
-	}
-	pm_runtime_mark_last_busy(i2cd->dev);
-	pm_runtime_put_autosuspend(i2cd->dev);
+	return i;
+stop:
+	status2 = gpu_i2c_stop(i2cd);
+	if (status2 < 0)
+		dev_err(i2cd->dev, "i2c stop failed %d\n", status2);
 	return status;
 }
 
@@ -269,6 +261,8 @@ static const struct property_entry ccgx_props[] = {
 
 static int gpu_populate_client(struct gpu_i2c_dev *i2cd, int irq)
 {
+	struct i2c_client *ccgx_client;
+
 	i2cd->gpu_ccgx_ucsi = devm_kzalloc(i2cd->dev,
 					   sizeof(*i2cd->gpu_ccgx_ucsi),
 					   GFP_KERNEL);
@@ -280,8 +274,8 @@ static int gpu_populate_client(struct gpu_i2c_dev *i2cd, int irq)
 	i2cd->gpu_ccgx_ucsi->addr = 0x8;
 	i2cd->gpu_ccgx_ucsi->irq = irq;
 	i2cd->gpu_ccgx_ucsi->properties = ccgx_props;
-	i2cd->ccgx_client = i2c_new_device(&i2cd->adapter, i2cd->gpu_ccgx_ucsi);
-	if (!i2cd->ccgx_client)
+	ccgx_client = i2c_new_device(&i2cd->adapter, i2cd->gpu_ccgx_ucsi);
+	if (!ccgx_client)
 		return -ENODEV;
 
 	return 0;
@@ -338,11 +332,6 @@ static int gpu_i2c_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto del_adapter;
 	}
 
-	pm_runtime_set_autosuspend_delay(&pdev->dev, 3000);
-	pm_runtime_use_autosuspend(&pdev->dev);
-	pm_runtime_put_autosuspend(&pdev->dev);
-	pm_runtime_allow(&pdev->dev);
-
 	return 0;
 
 del_adapter:
@@ -356,19 +345,8 @@ static void gpu_i2c_remove(struct pci_dev *pdev)
 {
 	struct gpu_i2c_dev *i2cd = dev_get_drvdata(&pdev->dev);
 
-	pm_runtime_get_noresume(i2cd->dev);
 	i2c_del_adapter(&i2cd->adapter);
 	pci_free_irq_vectors(pdev);
-}
-
-/*
- * We need gpu_i2c_suspend() even if it is stub, for runtime pm to work
- * correctly. Without it, lspci shows runtime pm status as "D0" for the card.
- * Documentation/power/pci.rst also insists for driver to provide this.
- */
-static __maybe_unused int gpu_i2c_suspend(struct device *dev)
-{
-	return 0;
 }
 
 static __maybe_unused int gpu_i2c_resume(struct device *dev)
@@ -376,18 +354,10 @@ static __maybe_unused int gpu_i2c_resume(struct device *dev)
 	struct gpu_i2c_dev *i2cd = dev_get_drvdata(dev);
 
 	gpu_enable_i2c_bus(i2cd);
-	/*
-	 * Runtime resume ccgx client so that it can see for any
-	 * connector change event. Old ccg firmware has known
-	 * issue of not triggering interrupt when a device is
-	 * connected to runtime resume the controller.
-	 */
-	pm_request_resume(&i2cd->ccgx_client->dev);
 	return 0;
 }
 
-static UNIVERSAL_DEV_PM_OPS(gpu_i2c_driver_pm, gpu_i2c_suspend, gpu_i2c_resume,
-			    NULL);
+static UNIVERSAL_DEV_PM_OPS(gpu_i2c_driver_pm, NULL, gpu_i2c_resume, NULL);
 
 static struct pci_driver gpu_i2c_driver = {
 	.name		= "nvidia-gpu",

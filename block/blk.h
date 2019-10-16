@@ -19,7 +19,6 @@ struct blk_flush_queue {
 	unsigned int		flush_queue_delayed:1;
 	unsigned int		flush_pending_idx:1;
 	unsigned int		flush_running_idx:1;
-	blk_status_t 		rq_status;
 	unsigned long		flush_pending_since;
 	struct list_head	flush_queue[2];
 	struct list_head	flush_data_in_flight;
@@ -46,12 +45,6 @@ blk_get_flush_queue(struct request_queue *q, struct blk_mq_ctx *ctx)
 static inline void __blk_get_queue(struct request_queue *q)
 {
 	kobject_get(&q->kobj);
-}
-
-static inline bool
-is_flush_rq(struct request *req, struct blk_mq_hw_ctx *hctx)
-{
-	return hctx->fq->flush_rq == req;
 }
 
 struct blk_flush_queue *blk_alloc_flush_queue(struct request_queue *q,
@@ -191,18 +184,16 @@ void blk_account_io_done(struct request *req, u64 now);
 
 void blk_insert_flush(struct request *rq);
 
-void elevator_init_mq(struct request_queue *q);
+int elevator_init_mq(struct request_queue *q);
 int elevator_switch_mq(struct request_queue *q,
 			      struct elevator_type *new_e);
 void __elevator_exit(struct request_queue *, struct elevator_queue *);
-int elv_register_queue(struct request_queue *q, bool uevent);
+int elv_register_queue(struct request_queue *q);
 void elv_unregister_queue(struct request_queue *q);
 
 static inline void elevator_exit(struct request_queue *q,
 		struct elevator_queue *e)
 {
-	lockdep_assert_held(&q->sysfs_lock);
-
 	blk_mq_sched_free_requests(q);
 	__elevator_exit(q, e);
 }

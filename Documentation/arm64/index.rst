@@ -1,3 +1,5 @@
+:orphan:
+
 ==================
 ARM64 Architecture
 ==================
@@ -16,7 +18,6 @@ ARM64 Architecture
     pointer-authentication
     silicon-errata
     sve
-    tagged-address-abi
     tagged-pointers
 
 .. only::  subproject and html

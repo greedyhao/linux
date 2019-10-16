@@ -29,19 +29,16 @@ static const struct mtk_video_fmt mtk_video_formats[] = {
 		.fourcc = V4L2_PIX_FMT_H264,
 		.type = MTK_FMT_DEC,
 		.num_planes = 1,
-		.flags = V4L2_FMT_FLAG_DYN_RESOLUTION,
 	},
 	{
 		.fourcc = V4L2_PIX_FMT_VP8,
 		.type = MTK_FMT_DEC,
 		.num_planes = 1,
-		.flags = V4L2_FMT_FLAG_DYN_RESOLUTION,
 	},
 	{
 		.fourcc = V4L2_PIX_FMT_VP9,
 		.type = MTK_FMT_DEC,
 		.num_planes = 1,
-		.flags = V4L2_FMT_FLAG_DYN_RESOLUTION,
 	},
 	{
 		.fourcc = V4L2_PIX_FMT_MT21C,
@@ -951,7 +948,6 @@ static int vidioc_enum_fmt(struct v4l2_fmtdesc *f, bool output_queue)
 
 	fmt = &mtk_video_formats[i];
 	f->pixelformat = fmt->fourcc;
-	f->flags = fmt->flags;
 
 	return 0;
 }

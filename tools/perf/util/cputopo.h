@@ -3,6 +3,7 @@
 #define __PERF_CPUTOPO_H
 
 #include <linux/types.h>
+#include "env.h"
 
 struct cpu_topology {
 	u32	  core_sib;

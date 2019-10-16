@@ -28,11 +28,12 @@ xfs_get_aghdr_buf(
 	struct xfs_mount	*mp,
 	xfs_daddr_t		blkno,
 	size_t			numblks,
+	int			flags,
 	const struct xfs_buf_ops *ops)
 {
 	struct xfs_buf		*bp;
 
-	bp = xfs_buf_get_uncached(mp->m_ddev_targp, numblks, 0);
+	bp = xfs_buf_get_uncached(mp->m_ddev_targp, numblks, flags);
 	if (!bp)
 		return NULL;
 
@@ -344,7 +345,7 @@ xfs_ag_init_hdr(
 {
 	struct xfs_buf		*bp;
 
-	bp = xfs_get_aghdr_buf(mp, id->daddr, id->numblks, ops);
+	bp = xfs_get_aghdr_buf(mp, id->daddr, id->numblks, 0, ops);
 	if (!bp)
 		return -ENOMEM;
 

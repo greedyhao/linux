@@ -1016,6 +1016,7 @@ static int zynqmp_qspi_probe(struct platform_device *pdev)
 	int ret = 0;
 	struct spi_master *master;
 	struct zynqmp_qspi *xqspi;
+	struct resource *res;
 	struct device *dev = &pdev->dev;
 
 	eemi_ops = zynqmp_pm_get_eemi_ops();
@@ -1030,7 +1031,8 @@ static int zynqmp_qspi_probe(struct platform_device *pdev)
 	master->dev.of_node = pdev->dev.of_node;
 	platform_set_drvdata(pdev, master);
 
-	xqspi->regs = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	xqspi->regs = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(xqspi->regs)) {
 		ret = PTR_ERR(xqspi->regs);
 		goto remove_master;
@@ -1075,6 +1077,7 @@ static int zynqmp_qspi_probe(struct platform_device *pdev)
 	xqspi->irq = platform_get_irq(pdev, 0);
 	if (xqspi->irq <= 0) {
 		ret = -ENXIO;
+		dev_err(dev, "irq resource not found\n");
 		goto clk_dis_all;
 	}
 	ret = devm_request_irq(&pdev->dev, xqspi->irq, zynqmp_qspi_irq,

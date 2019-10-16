@@ -323,6 +323,9 @@ megasas_fusion_update_can_queue(struct megasas_instance *instance, int fw_boot_c
 {
 	u16 cur_max_fw_cmds = 0;
 	u16 ldio_threshold = 0;
+	struct megasas_register_set __iomem *reg_set;
+
+	reg_set = instance->reg_set;
 
 	/* ventura FW does not fill outbound_scratch_pad_2 with queue depth */
 	if (instance->adapter_type < VENTURA_SERIES)
@@ -534,7 +537,7 @@ static int megasas_create_sg_sense_fusion(struct megasas_instance *instance)
 	return 0;
 }
 
-static int
+int
 megasas_alloc_cmdlist_fusion(struct megasas_instance *instance)
 {
 	u32 max_mpt_cmd, i, j;
@@ -573,8 +576,7 @@ megasas_alloc_cmdlist_fusion(struct megasas_instance *instance)
 
 	return 0;
 }
-
-static int
+int
 megasas_alloc_request_fusion(struct megasas_instance *instance)
 {
 	struct fusion_context *fusion;
@@ -655,7 +657,7 @@ retry_alloc:
 	return 0;
 }
 
-static int
+int
 megasas_alloc_reply_fusion(struct megasas_instance *instance)
 {
 	int i, count;
@@ -732,7 +734,7 @@ megasas_alloc_reply_fusion(struct megasas_instance *instance)
 	return 0;
 }
 
-static int
+int
 megasas_alloc_rdpq_fusion(struct megasas_instance *instance)
 {
 	int i, j, k, msix_count;
@@ -914,7 +916,7 @@ megasas_free_reply_fusion(struct megasas_instance *instance) {
  * and is used as SMID of the cmd.
  * SMID value range is from 1 to max_fw_cmds.
  */
-static int
+int
 megasas_alloc_cmds_fusion(struct megasas_instance *instance)
 {
 	int i;
@@ -1734,7 +1736,7 @@ static inline void megasas_free_ioc_init_cmd(struct megasas_instance *instance)
  *
  * This is the main function for initializing firmware.
  */
-static u32
+u32
 megasas_init_adapter_fusion(struct megasas_instance *instance)
 {
 	struct fusion_context *fusion;
@@ -1960,7 +1962,7 @@ megasas_fusion_stop_watchdog(struct megasas_instance *instance)
  * @ext_status :	ext status of cmd returned by FW
  */
 
-static void
+void
 map_cmd_status(struct fusion_context *fusion,
 		struct scsi_cmnd *scmd, u8 status, u8 ext_status,
 		u32 data_length, u8 *sense)
@@ -2373,7 +2375,7 @@ int megasas_make_sgl(struct megasas_instance *instance, struct scsi_cmnd *scp,
  *
  * Used to set the PD LBA in CDB for FP IOs
  */
-static void
+void
 megasas_set_pd_lba(struct MPI2_RAID_SCSI_IO_REQUEST *io_request, u8 cdb_len,
 		   struct IO_REQUEST_INFO *io_info, struct scsi_cmnd *scp,
 		   struct MR_DRV_RAID_MAP_ALL *local_map_ptr, u32 ref_tag)
@@ -2712,7 +2714,7 @@ megasas_set_raidflag_cpu_affinity(struct fusion_context *fusion,
  * Prepares the io_request and chain elements (sg_frame) for IO
  * The IO can be for PD (Fast Path) or LD
  */
-static void
+void
 megasas_build_ldio_fusion(struct megasas_instance *instance,
 			  struct scsi_cmnd *scp,
 			  struct megasas_cmd_fusion *cmd)
@@ -3209,7 +3211,7 @@ megasas_build_syspd_fusion(struct megasas_instance *instance,
  * Invokes helper functions to prepare request frames
  * and sets flags appropriate for IO/Non-IO cmd
  */
-static int
+int
 megasas_build_io_fusion(struct megasas_instance *instance,
 			struct scsi_cmnd *scp,
 			struct megasas_cmd_fusion *cmd)
@@ -3323,9 +3325,9 @@ megasas_get_request_descriptor(struct megasas_instance *instance, u16 index)
 /* megasas_prepate_secondRaid1_IO
  *  It prepares the raid 1 second IO
  */
-static void megasas_prepare_secondRaid1_IO(struct megasas_instance *instance,
-					   struct megasas_cmd_fusion *cmd,
-					   struct megasas_cmd_fusion *r1_cmd)
+void megasas_prepare_secondRaid1_IO(struct megasas_instance *instance,
+			    struct megasas_cmd_fusion *cmd,
+			    struct megasas_cmd_fusion *r1_cmd)
 {
 	union MEGASAS_REQUEST_DESCRIPTOR_UNION *req_desc, *req_desc2 = NULL;
 	struct fusion_context *fusion;
@@ -3508,7 +3510,7 @@ megasas_complete_r1_command(struct megasas_instance *instance,
  * @instance:			Adapter soft state
  * Completes all commands that is in reply descriptor queue
  */
-static int
+int
 complete_cmd_fusion(struct megasas_instance *instance, u32 MSIxIndex,
 		    struct megasas_irq_context *irq_context)
 {
@@ -3699,7 +3701,7 @@ static void megasas_enable_irq_poll(struct megasas_instance *instance)
  * megasas_sync_irqs -	Synchronizes all IRQs owned by adapter
  * @instance:			Adapter soft state
  */
-static void megasas_sync_irqs(unsigned long instance_addr)
+void megasas_sync_irqs(unsigned long instance_addr)
 {
 	u32 count, i;
 	struct megasas_instance *instance =
@@ -3757,7 +3759,7 @@ int megasas_irqpoll(struct irq_poll *irqpoll, int budget)
  *
  * Tasklet to complete cmds
  */
-static void
+void
 megasas_complete_cmd_dpc_fusion(unsigned long instance_addr)
 {
 	struct megasas_instance *instance =
@@ -3777,7 +3779,7 @@ megasas_complete_cmd_dpc_fusion(unsigned long instance_addr)
 /**
  * megasas_isr_fusion - isr entry point
  */
-static irqreturn_t megasas_isr_fusion(int irq, void *devp)
+irqreturn_t megasas_isr_fusion(int irq, void *devp)
 {
 	struct megasas_irq_context *irq_context = devp;
 	struct megasas_instance *instance = irq_context->instance;
@@ -3813,7 +3815,7 @@ static irqreturn_t megasas_isr_fusion(int irq, void *devp)
  * mfi_cmd:			megasas_cmd pointer
  *
  */
-static void
+void
 build_mpt_mfi_pass_thru(struct megasas_instance *instance,
 			struct megasas_cmd *mfi_cmd)
 {
@@ -3871,7 +3873,7 @@ build_mpt_mfi_pass_thru(struct megasas_instance *instance,
  * @cmd:			mfi cmd to build
  *
  */
-static union MEGASAS_REQUEST_DESCRIPTOR_UNION *
+union MEGASAS_REQUEST_DESCRIPTOR_UNION *
 build_mpt_cmd(struct megasas_instance *instance, struct megasas_cmd *cmd)
 {
 	union MEGASAS_REQUEST_DESCRIPTOR_UNION *req_desc = NULL;
@@ -3897,7 +3899,7 @@ build_mpt_cmd(struct megasas_instance *instance, struct megasas_cmd *cmd)
  * @cmd:			mfi cmd pointer
  *
  */
-static void
+void
 megasas_issue_dcmd_fusion(struct megasas_instance *instance,
 			  struct megasas_cmd *cmd)
 {
@@ -4093,9 +4095,8 @@ static inline void megasas_trigger_snap_dump(struct megasas_instance *instance)
 }
 
 /* This function waits for outstanding commands on fusion to complete */
-static int
-megasas_wait_for_outstanding_fusion(struct megasas_instance *instance,
-				    int reason, int *convert)
+int megasas_wait_for_outstanding_fusion(struct megasas_instance *instance,
+					int reason, int *convert)
 {
 	int i, outstanding, retval = 0, hb_seconds_missed = 0;
 	u32 fw_state, abs_state;
@@ -4219,7 +4220,7 @@ void  megasas_reset_reply_desc(struct megasas_instance *instance)
  * megasas_refire_mgmt_cmd :	Re-fire management commands
  * @instance:				Controller's soft instance
 */
-static void megasas_refire_mgmt_cmd(struct megasas_instance *instance)
+void megasas_refire_mgmt_cmd(struct megasas_instance *instance)
 {
 	int j;
 	struct megasas_cmd_fusion *cmd_fusion;
@@ -4745,8 +4746,7 @@ out:
 }
 
 /*SRIOV get other instance in cluster if any*/
-static struct
-megasas_instance *megasas_get_peer_instance(struct megasas_instance *instance)
+struct megasas_instance *megasas_get_peer_instance(struct megasas_instance *instance)
 {
 	int i;
 
@@ -5052,7 +5052,7 @@ out:
 }
 
 /* Fusion Crash dump collection */
-static void  megasas_fusion_crash_dump(struct megasas_instance *instance)
+void  megasas_fusion_crash_dump(struct megasas_instance *instance)
 {
 	u32 status_reg;
 	u8 partial_copy = 0;

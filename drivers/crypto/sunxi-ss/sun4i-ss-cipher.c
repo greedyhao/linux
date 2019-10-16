@@ -8,7 +8,7 @@
  * keysize in CBC and ECB mode.
  * Add support also for DES and 3DES in CBC and ECB mode.
  *
- * You could find the datasheet in Documentation/arm/sunxi.rst
+ * You could find the datasheet in Documentation/arm/sunxi/README
  */
 #include "sun4i-ss.h"
 
@@ -542,11 +542,25 @@ int sun4i_ss_des_setkey(struct crypto_skcipher *tfm, const u8 *key,
 			unsigned int keylen)
 {
 	struct sun4i_tfm_ctx *op = crypto_skcipher_ctx(tfm);
-	int err;
+	struct sun4i_ss_ctx *ss = op->ss;
+	u32 flags;
+	u32 tmp[DES_EXPKEY_WORDS];
+	int ret;
 
-	err = verify_skcipher_des_key(tfm, key);
-	if (err)
-		return err;
+	if (unlikely(keylen != DES_KEY_SIZE)) {
+		dev_err(ss->dev, "Invalid keylen %u\n", keylen);
+		crypto_skcipher_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
+		return -EINVAL;
+	}
+
+	flags = crypto_skcipher_get_flags(tfm);
+
+	ret = des_ekey(tmp, key);
+	if (unlikely(!ret) && (flags & CRYPTO_TFM_REQ_FORBID_WEAK_KEYS)) {
+		crypto_skcipher_set_flags(tfm, CRYPTO_TFM_RES_WEAK_KEY);
+		dev_dbg(ss->dev, "Weak key %u\n", keylen);
+		return -EINVAL;
+	}
 
 	op->keylen = keylen;
 	memcpy(op->key, key, keylen);
@@ -564,8 +578,8 @@ int sun4i_ss_des3_setkey(struct crypto_skcipher *tfm, const u8 *key,
 	struct sun4i_tfm_ctx *op = crypto_skcipher_ctx(tfm);
 	int err;
 
-	err = verify_skcipher_des3_key(tfm, key);
-	if (err)
+	err = des3_verify_key(tfm, key);
+	if (unlikely(err))
 		return err;
 
 	op->keylen = keylen;

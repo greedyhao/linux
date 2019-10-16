@@ -46,27 +46,29 @@ static unsigned long rockchip_mmc_recalc(struct clk_hw *hw,
 static int rockchip_mmc_get_phase(struct clk_hw *hw)
 {
 	struct rockchip_mmc_clock *mmc_clock = to_mmc_clock(hw);
-	unsigned long rate = clk_hw_get_rate(hw);
+	unsigned long rate = clk_get_rate(hw->clk);
 	u32 raw_value;
 	u16 degrees;
 	u32 delay_num = 0;
 
 	/* See the comment for rockchip_mmc_set_phase below */
-	if (!rate)
+	if (!rate) {
+		pr_err("%s: invalid clk rate\n", __func__);
 		return -EINVAL;
+	}
 
 	raw_value = readl(mmc_clock->reg) >> (mmc_clock->shift);
 
 	degrees = (raw_value & ROCKCHIP_MMC_DEGREE_MASK) * 90;
 
 	if (raw_value & ROCKCHIP_MMC_DELAY_SEL) {
-		/* degrees/delaynum * 1000000 */
+		/* degrees/delaynum * 10000 */
 		unsigned long factor = (ROCKCHIP_MMC_DELAY_ELEMENT_PSEC / 10) *
-					36 * (rate / 10000);
+					36 * (rate / 1000000);
 
 		delay_num = (raw_value & ROCKCHIP_MMC_DELAYNUM_MASK);
 		delay_num >>= ROCKCHIP_MMC_DELAYNUM_OFFSET;
-		degrees += DIV_ROUND_CLOSEST(delay_num * factor, 1000000);
+		degrees += DIV_ROUND_CLOSEST(delay_num * factor, 10000);
 	}
 
 	return degrees % 360;
@@ -75,7 +77,7 @@ static int rockchip_mmc_get_phase(struct clk_hw *hw)
 static int rockchip_mmc_set_phase(struct clk_hw *hw, int degrees)
 {
 	struct rockchip_mmc_clock *mmc_clock = to_mmc_clock(hw);
-	unsigned long rate = clk_hw_get_rate(hw);
+	unsigned long rate = clk_get_rate(hw->clk);
 	u8 nineties, remainder;
 	u8 delay_num;
 	u32 raw_value;

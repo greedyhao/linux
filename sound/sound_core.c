@@ -275,8 +275,7 @@ retry:
 				goto retry;
 			}
 			spin_unlock(&sound_loader_lock);
-			r = -EBUSY;
-			goto fail;
+			return -EBUSY;
 		}
 	}
 

@@ -7,7 +7,6 @@
 #ifndef SCSI_NETLINK_FC_H
 #define SCSI_NETLINK_FC_H
 
-#include <linux/types.h>
 #include <scsi/scsi_netlink.h>
 
 /*
@@ -44,14 +43,14 @@
  */
 struct fc_nl_event {
 	struct scsi_nl_hdr snlh;		/* must be 1st element ! */
-	__u64 seconds;
-	__u64 vendor_id;
-	__u16 host_no;
-	__u16 event_datalen;
-	__u32 event_num;
-	__u32 event_code;
-	__u32 event_data;
-} __attribute__((aligned(sizeof(__u64))));
+	uint64_t seconds;
+	uint64_t vendor_id;
+	uint16_t host_no;
+	uint16_t event_datalen;
+	uint32_t event_num;
+	uint32_t event_code;
+	uint32_t event_data;
+} __attribute__((aligned(sizeof(uint64_t))));
 
 
 #endif /* SCSI_NETLINK_FC_H */

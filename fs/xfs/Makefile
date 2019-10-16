@@ -49,7 +49,6 @@ xfs-y				+= $(addprefix libxfs/, \
 				   xfs_refcount_btree.o \
 				   xfs_sb.o \
 				   xfs_symlink_remote.o \
-				   xfs_trans_inode.o \
 				   xfs_trans_resv.o \
 				   xfs_types.o \
 				   )
@@ -108,7 +107,8 @@ xfs-y				+= xfs_log.o \
 				   xfs_rmap_item.o \
 				   xfs_log_recover.o \
 				   xfs_trans_ail.o \
-				   xfs_trans_buf.o
+				   xfs_trans_buf.o \
+				   xfs_trans_inode.o
 
 # optional features
 xfs-$(CONFIG_XFS_QUOTA)		+= xfs_dquot.o \

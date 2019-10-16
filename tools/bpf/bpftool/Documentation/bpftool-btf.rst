@@ -19,7 +19,6 @@ SYNOPSIS
 BTF COMMANDS
 =============
 
-|	**bpftool** **btf** { **show** | **list** } [**id** *BTF_ID*]
 |	**bpftool** **btf dump** *BTF_SRC* [**format** *FORMAT*]
 |	**bpftool** **btf help**
 |
@@ -30,12 +29,6 @@ BTF COMMANDS
 
 DESCRIPTION
 ===========
-	**bpftool btf { show | list }** [**id** *BTF_ID*]
-		  Show information about loaded BTF objects. If a BTF ID is
-		  specified, show information only about given BTF object,
-		  otherwise list all BTF objects currently loaded on the
-		  system.
-
 	**bpftool btf dump** *BTF_SRC*
 		  Dump BTF entries from a given *BTF_SRC*.
 

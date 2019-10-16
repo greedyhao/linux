@@ -26,35 +26,7 @@
 
 #include <uapi/linux/netfilter_bridge.h> /* NF_BR_PRE_ROUTING */
 
-#define NFT_META_SECS_PER_MINUTE	60
-#define NFT_META_SECS_PER_HOUR		3600
-#define NFT_META_SECS_PER_DAY		86400
-#define NFT_META_DAYS_PER_WEEK		7
-
 static DEFINE_PER_CPU(struct rnd_state, nft_prandom_state);
-
-static u8 nft_meta_weekday(unsigned long secs)
-{
-	unsigned int dse;
-	u8 wday;
-
-	secs -= NFT_META_SECS_PER_MINUTE * sys_tz.tz_minuteswest;
-	dse = secs / NFT_META_SECS_PER_DAY;
-	wday = (4 + dse) % NFT_META_DAYS_PER_WEEK;
-
-	return wday;
-}
-
-static u32 nft_meta_hour(unsigned long secs)
-{
-	struct tm tm;
-
-	time64_to_tm(secs, 0, &tm);
-
-	return tm.tm_hour * NFT_META_SECS_PER_HOUR
-		+ tm.tm_min * NFT_META_SECS_PER_MINUTE
-		+ tm.tm_sec;
-}
 
 void nft_meta_get_eval(const struct nft_expr *expr,
 		       struct nft_regs *regs,
@@ -88,16 +60,24 @@ void nft_meta_get_eval(const struct nft_expr *expr,
 		*dest = skb->mark;
 		break;
 	case NFT_META_IIF:
-		*dest = in ? in->ifindex : 0;
+		if (in == NULL)
+			goto err;
+		*dest = in->ifindex;
 		break;
 	case NFT_META_OIF:
-		*dest = out ? out->ifindex : 0;
+		if (out == NULL)
+			goto err;
+		*dest = out->ifindex;
 		break;
 	case NFT_META_IIFNAME:
-		strncpy((char *)dest, in ? in->name : "", IFNAMSIZ);
+		if (in == NULL)
+			goto err;
+		strncpy((char *)dest, in->name, IFNAMSIZ);
 		break;
 	case NFT_META_OIFNAME:
-		strncpy((char *)dest, out ? out->name : "", IFNAMSIZ);
+		if (out == NULL)
+			goto err;
+		strncpy((char *)dest, out->name, IFNAMSIZ);
 		break;
 	case NFT_META_IIFTYPE:
 		if (in == NULL)
@@ -246,15 +226,6 @@ void nft_meta_get_eval(const struct nft_expr *expr,
 			goto err;
 		strncpy((char *)dest, out->rtnl_link_ops->kind, IFNAMSIZ);
 		break;
-	case NFT_META_TIME_NS:
-		nft_reg_store64(dest, ktime_get_real_ns());
-		break;
-	case NFT_META_TIME_DAY:
-		nft_reg_store8(dest, nft_meta_weekday(get_seconds()));
-		break;
-	case NFT_META_TIME_HOUR:
-		*dest = nft_meta_hour(get_seconds());
-		break;
 	default:
 		WARN_ON(1);
 		goto err;
@@ -367,15 +338,6 @@ int nft_meta_get_init(const struct nft_ctx *ctx,
 		len = sizeof(u8);
 		break;
 #endif
-	case NFT_META_TIME_NS:
-		len = sizeof(u64);
-		break;
-	case NFT_META_TIME_DAY:
-		len = sizeof(u8);
-		break;
-	case NFT_META_TIME_HOUR:
-		len = sizeof(u32);
-		break;
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -584,7 +546,7 @@ nft_meta_select_ops(const struct nft_ctx *ctx,
 	if (tb[NFTA_META_DREG] && tb[NFTA_META_SREG])
 		return ERR_PTR(-EINVAL);
 
-#if IS_ENABLED(CONFIG_NF_TABLES_BRIDGE) && IS_MODULE(CONFIG_NFT_BRIDGE_META)
+#ifdef CONFIG_NF_TABLES_BRIDGE
 	if (ctx->family == NFPROTO_BRIDGE)
 		return ERR_PTR(-EAGAIN);
 #endif

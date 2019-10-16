@@ -336,28 +336,25 @@ SYSCALL_DEFINE6(sparc_ipc, unsigned int, call, int, first, unsigned long, second
 {
 	long err;
 
-	if (!IS_ENABLED(CONFIG_SYSVIPC))
-		return -ENOSYS;
-
 	/* No need for backward compatibility. We can start fresh... */
 	if (call <= SEMTIMEDOP) {
 		switch (call) {
 		case SEMOP:
-			err = ksys_semtimedop(first, ptr,
-					      (unsigned int)second, NULL);
+			err = sys_semtimedop(first, ptr,
+					     (unsigned int)second, NULL);
 			goto out;
 		case SEMTIMEDOP:
-			err = ksys_semtimedop(first, ptr, (unsigned int)second,
+			err = sys_semtimedop(first, ptr, (unsigned int)second,
 				(const struct __kernel_timespec __user *)
-					      (unsigned long) fifth);
+					     (unsigned long) fifth);
 			goto out;
 		case SEMGET:
-			err = ksys_semget(first, (int)second, (int)third);
+			err = sys_semget(first, (int)second, (int)third);
 			goto out;
 		case SEMCTL: {
-			err = ksys_old_semctl(first, second,
-					      (int)third | IPC_64,
-					      (unsigned long) ptr);
+			err = sys_semctl(first, second,
+					 (int)third | IPC_64,
+					 (unsigned long) ptr);
 			goto out;
 		}
 		default:
@@ -368,18 +365,18 @@ SYSCALL_DEFINE6(sparc_ipc, unsigned int, call, int, first, unsigned long, second
 	if (call <= MSGCTL) {
 		switch (call) {
 		case MSGSND:
-			err = ksys_msgsnd(first, ptr, (size_t)second,
+			err = sys_msgsnd(first, ptr, (size_t)second,
 					 (int)third);
 			goto out;
 		case MSGRCV:
-			err = ksys_msgrcv(first, ptr, (size_t)second, fifth,
+			err = sys_msgrcv(first, ptr, (size_t)second, fifth,
 					 (int)third);
 			goto out;
 		case MSGGET:
-			err = ksys_msgget((key_t)first, (int)second);
+			err = sys_msgget((key_t)first, (int)second);
 			goto out;
 		case MSGCTL:
-			err = ksys_old_msgctl(first, (int)second | IPC_64, ptr);
+			err = sys_msgctl(first, (int)second | IPC_64, ptr);
 			goto out;
 		default:
 			err = -ENOSYS;
@@ -399,13 +396,13 @@ SYSCALL_DEFINE6(sparc_ipc, unsigned int, call, int, first, unsigned long, second
 			goto out;
 		}
 		case SHMDT:
-			err = ksys_shmdt(ptr);
+			err = sys_shmdt(ptr);
 			goto out;
 		case SHMGET:
-			err = ksys_shmget(first, (size_t)second, (int)third);
+			err = sys_shmget(first, (size_t)second, (int)third);
 			goto out;
 		case SHMCTL:
-			err = ksys_old_shmctl(first, (int)second | IPC_64, ptr);
+			err = sys_shmctl(first, (int)second | IPC_64, ptr);
 			goto out;
 		default:
 			err = -ENOSYS;

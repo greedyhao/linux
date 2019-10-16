@@ -145,11 +145,7 @@ struct cred {
 	struct user_struct *user;	/* real user ID subscription */
 	struct user_namespace *user_ns; /* user_ns the caps and keyrings are relative to. */
 	struct group_info *group_info;	/* supplementary groups for euid/fsgid */
-	/* RCU deletion */
-	union {
-		int non_rcu;			/* Can we skip RCU deletion? */
-		struct rcu_head	rcu;		/* RCU deletion hook */
-	};
+	struct rcu_head	rcu;		/* RCU deletion hook */
 } __randomize_layout;
 
 extern void __put_cred(struct cred *);
@@ -250,7 +246,6 @@ static inline const struct cred *get_cred(const struct cred *cred)
 	if (!cred)
 		return cred;
 	validate_creds(cred);
-	nonconst_cred->non_rcu = 0;
 	return get_new_cred(nonconst_cred);
 }
 
@@ -262,7 +257,6 @@ static inline const struct cred *get_cred_rcu(const struct cred *cred)
 	if (!atomic_inc_not_zero(&nonconst_cred->usage))
 		return NULL;
 	validate_creds(cred);
-	nonconst_cred->non_rcu = 0;
 	return cred;
 }
 
@@ -386,6 +380,7 @@ static inline void put_cred(const struct cred *_cred)
 #define current_fsgid() 	(current_cred_xxx(fsgid))
 #define current_cap()		(current_cred_xxx(cap_effective))
 #define current_user()		(current_cred_xxx(user))
+#define current_security()	(current_cred_xxx(security))
 
 extern struct user_namespace init_user_ns;
 #ifdef CONFIG_USER_NS

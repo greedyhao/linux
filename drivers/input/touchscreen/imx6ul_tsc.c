@@ -430,12 +430,16 @@ static int imx6ul_tsc_probe(struct platform_device *pdev)
 	}
 
 	tsc_irq = platform_get_irq(pdev, 0);
-	if (tsc_irq < 0)
+	if (tsc_irq < 0) {
+		dev_err(&pdev->dev, "no tsc irq resource?\n");
 		return tsc_irq;
+	}
 
 	adc_irq = platform_get_irq(pdev, 1);
-	if (adc_irq < 0)
+	if (adc_irq < 0) {
+		dev_err(&pdev->dev, "no adc irq resource?\n");
 		return adc_irq;
+	}
 
 	err = devm_request_threaded_irq(tsc->dev, tsc_irq,
 					NULL, tsc_irq_fn, IRQF_ONESHOT,

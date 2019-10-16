@@ -479,10 +479,8 @@ int __ubifs_node_verify_hmac(const struct ubifs_info *c, const void *node,
 		return -ENOMEM;
 
 	err = ubifs_node_calc_hmac(c, node, len, ofs_hmac, hmac);
-	if (err) {
-		kfree(hmac);
+	if (err)
 		return err;
-	}
 
 	err = crypto_memneq(hmac, node + ofs_hmac, hmac_len);
 

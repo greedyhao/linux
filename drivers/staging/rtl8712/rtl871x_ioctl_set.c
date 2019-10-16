@@ -320,22 +320,22 @@ u8 r8712_set_802_11_authentication_mode(struct _adapter *padapter,
 	psecuritypriv->ndisauthtype = authmode;
 	if (psecuritypriv->ndisauthtype > 3)
 		psecuritypriv->AuthAlgrthm = 2; /* 802.1x */
-	if (r8712_set_auth(padapter, psecuritypriv))
-		ret = false;
-	else
+	if (r8712_set_auth(padapter, psecuritypriv) == _SUCCESS)
 		ret = true;
+	else
+		ret = false;
 	return ret;
 }
 
-int r8712_set_802_11_add_wep(struct _adapter *padapter,
-			     struct NDIS_802_11_WEP *wep)
+u8 r8712_set_802_11_add_wep(struct _adapter *padapter,
+			    struct NDIS_802_11_WEP *wep)
 {
 	sint	keyid;
 	struct security_priv *psecuritypriv = &padapter->securitypriv;
 
 	keyid = wep->KeyIndex & 0x3fffffff;
 	if (keyid >= WEP_KEYS)
-		return -EINVAL;
+		return false;
 	switch (wep->KeyLength) {
 	case 5:
 		psecuritypriv->PrivacyAlgrthm = _WEP40_;
@@ -351,5 +351,7 @@ int r8712_set_802_11_add_wep(struct _adapter *padapter,
 		wep->KeyLength);
 	psecuritypriv->DefKeylen[keyid] = wep->KeyLength;
 	psecuritypriv->PrivacyKeyIndex = keyid;
-	return r8712_set_key(padapter, psecuritypriv, keyid);
+	if (r8712_set_key(padapter, psecuritypriv, keyid) == _FAIL)
+		return false;
+	return _SUCCESS;
 }

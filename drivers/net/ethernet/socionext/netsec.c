@@ -282,6 +282,7 @@ struct netsec_desc_ring {
 	void *vaddr;
 	u16 head, tail;
 	u16 xdp_xmit; /* netsec_xdp_xmit packets */
+	bool is_xdp;
 	struct page_pool *page_pool;
 	struct xdp_rxq_info xdp_rxq;
 	spinlock_t lock; /* XDP tx queue locking */
@@ -633,7 +634,8 @@ static bool netsec_clean_tx_dring(struct netsec_priv *priv)
 	unsigned int bytes;
 	int cnt = 0;
 
-	spin_lock(&dring->lock);
+	if (dring->is_xdp)
+		spin_lock(&dring->lock);
 
 	bytes = 0;
 	entry = dring->vaddr + DESC_SZ * tail;
@@ -680,8 +682,8 @@ next:
 		entry = dring->vaddr + DESC_SZ * tail;
 		cnt++;
 	}
-
-	spin_unlock(&dring->lock);
+	if (dring->is_xdp)
+		spin_unlock(&dring->lock);
 
 	if (!cnt)
 		return false;
@@ -797,6 +799,9 @@ static void netsec_set_tx_de(struct netsec_priv *priv,
 	de->data_buf_addr_lw = lower_32_bits(desc->dma_addr);
 	de->buf_len_info = (tx_ctrl->tcp_seg_len << 16) | desc->len;
 	de->attr = attr;
+	/* under spin_lock if using XDP */
+	if (!dring->is_xdp)
+		dma_wmb();
 
 	dring->desc[idx] = *desc;
 	if (desc->buf_type == TYPE_NETSEC_SKB)
@@ -1118,10 +1123,12 @@ static netdev_tx_t netsec_netdev_start_xmit(struct sk_buff *skb,
 	u16 tso_seg_len = 0;
 	int filled;
 
-	spin_lock_bh(&dring->lock);
+	if (dring->is_xdp)
+		spin_lock_bh(&dring->lock);
 	filled = netsec_desc_used(dring);
 	if (netsec_check_stop_tx(priv, filled)) {
-		spin_unlock_bh(&dring->lock);
+		if (dring->is_xdp)
+			spin_unlock_bh(&dring->lock);
 		net_warn_ratelimited("%s %s Tx queue full\n",
 				     dev_name(priv->dev), ndev->name);
 		return NETDEV_TX_BUSY;
@@ -1154,7 +1161,8 @@ static netdev_tx_t netsec_netdev_start_xmit(struct sk_buff *skb,
 	tx_desc.dma_addr = dma_map_single(priv->dev, skb->data,
 					  skb_headlen(skb), DMA_TO_DEVICE);
 	if (dma_mapping_error(priv->dev, tx_desc.dma_addr)) {
-		spin_unlock_bh(&dring->lock);
+		if (dring->is_xdp)
+			spin_unlock_bh(&dring->lock);
 		netif_err(priv, drv, priv->ndev,
 			  "%s: DMA mapping failed\n", __func__);
 		ndev->stats.tx_dropped++;
@@ -1169,7 +1177,8 @@ static netdev_tx_t netsec_netdev_start_xmit(struct sk_buff *skb,
 	netdev_sent_queue(priv->ndev, skb->len);
 
 	netsec_set_tx_de(priv, dring, &tx_ctrl, &tx_desc, skb);
-	spin_unlock_bh(&dring->lock);
+	if (dring->is_xdp)
+		spin_unlock_bh(&dring->lock);
 	netsec_write(priv, NETSEC_REG_NRM_TX_PKTCNT, 1); /* submit another tx */
 
 	return NETDEV_TX_OK;
@@ -1253,6 +1262,7 @@ err:
 static void netsec_setup_tx_dring(struct netsec_priv *priv)
 {
 	struct netsec_desc_ring *dring = &priv->desc_ring[NETSEC_RING_TX];
+	struct bpf_prog *xdp_prog = READ_ONCE(priv->xdp_prog);
 	int i;
 
 	for (i = 0; i < DESC_NUM; i++) {
@@ -1265,6 +1275,12 @@ static void netsec_setup_tx_dring(struct netsec_priv *priv)
 		 */
 		de->attr = 1U << NETSEC_TX_SHIFT_OWN_FIELD;
 	}
+
+	if (xdp_prog)
+		dring->is_xdp = true;
+	else
+		dring->is_xdp = false;
+
 }
 
 static int netsec_setup_rx_dring(struct netsec_priv *priv)
@@ -1991,7 +2007,7 @@ static int netsec_probe(struct platform_device *pdev)
 			   NETIF_MSG_LINK | NETIF_MSG_PROBE;
 
 	priv->phy_interface = device_get_phy_mode(&pdev->dev);
-	if ((int)priv->phy_interface < 0) {
+	if (priv->phy_interface < 0) {
 		dev_err(&pdev->dev, "missing required property 'phy-mode'\n");
 		ret = -ENODEV;
 		goto free_ndev;

@@ -122,7 +122,6 @@ bool mlx5e_xdp_handle(struct mlx5e_rq *rq, struct mlx5e_dma_info *di,
 		      void *va, u16 *rx_headroom, u32 *len, bool xsk)
 {
 	struct bpf_prog *prog = READ_ONCE(rq->xdp_prog);
-	struct xdp_umem *umem = rq->umem;
 	struct xdp_buff xdp;
 	u32 act;
 	int err;
@@ -139,11 +138,8 @@ bool mlx5e_xdp_handle(struct mlx5e_rq *rq, struct mlx5e_dma_info *di,
 	xdp.rxq = &rq->xdp_rxq;
 
 	act = bpf_prog_run_xdp(prog, &xdp);
-	if (xsk) {
-		u64 off = xdp.data - xdp.data_hard_start;
-
-		xdp.handle = xsk_umem_adjust_offset(umem, xdp.handle, off);
-	}
+	if (xsk)
+		xdp.handle += xdp.data - xdp.data_hard_start;
 	switch (act) {
 	case XDP_PASS:
 		*rx_headroom = xdp.data - xdp.data_hard_start;
@@ -183,19 +179,33 @@ static void mlx5e_xdp_mpwqe_session_start(struct mlx5e_xdpsq *sq)
 	struct mlx5e_xdp_mpwqe *session = &sq->mpwqe;
 	struct mlx5e_xdpsq_stats *stats = sq->stats;
 	struct mlx5_wq_cyc *wq = &sq->wq;
-	u16 pi, contig_wqebbs;
+	u8  wqebbs;
+	u16 pi;
 
-	pi = mlx5_wq_cyc_ctr2ix(wq, sq->pc);
-	contig_wqebbs = mlx5_wq_cyc_get_contig_wqebbs(wq, pi);
-
-	if (unlikely(contig_wqebbs < MLX5_SEND_WQE_MAX_WQEBBS))
-		mlx5e_fill_xdpsq_frag_edge(sq, wq, pi, contig_wqebbs);
-
-	session->wqe = mlx5e_xdpsq_fetch_wqe(sq, &pi);
+	mlx5e_xdpsq_fetch_wqe(sq, &session->wqe);
 
 	prefetchw(session->wqe->data);
 	session->ds_count  = MLX5E_XDP_TX_EMPTY_DS_COUNT;
 	session->pkt_count = 0;
+	session->complete  = 0;
+
+	pi = mlx5_wq_cyc_ctr2ix(wq, sq->pc);
+
+/* The mult of MLX5_SEND_WQE_MAX_WQEBBS * MLX5_SEND_WQEBB_NUM_DS
+ * (16 * 4 == 64) does not fit in the 6-bit DS field of Ctrl Segment.
+ * We use a bound lower that MLX5_SEND_WQE_MAX_WQEBBS to let a
+ * full-session WQE be cache-aligned.
+ */
+#if L1_CACHE_BYTES < 128
+#define MLX5E_XDP_MPW_MAX_WQEBBS (MLX5_SEND_WQE_MAX_WQEBBS - 1)
+#else
+#define MLX5E_XDP_MPW_MAX_WQEBBS (MLX5_SEND_WQE_MAX_WQEBBS - 2)
+#endif
+
+	wqebbs = min_t(u16, mlx5_wq_cyc_get_contig_wqebbs(wq, pi),
+		       MLX5E_XDP_MPW_MAX_WQEBBS);
+
+	session->max_ds_count = MLX5_SEND_WQEBB_NUM_DS * wqebbs;
 
 	mlx5e_xdp_update_inline_state(sq);
 
@@ -234,7 +244,7 @@ static int mlx5e_xmit_xdp_frame_check_mpwqe(struct mlx5e_xdpsq *sq)
 {
 	if (unlikely(!sq->mpwqe.wqe)) {
 		if (unlikely(!mlx5e_wqc_has_room_for(&sq->wq, sq->cc, sq->pc,
-						     MLX5E_XDPSQ_STOP_ROOM))) {
+						     MLX5_SEND_WQE_MAX_WQEBBS))) {
 			/* SQ is full, ring doorbell */
 			mlx5e_xmit_xdp_doorbell(sq);
 			sq->stats->full++;
@@ -275,8 +285,8 @@ static bool mlx5e_xmit_xdp_frame_mpwqe(struct mlx5e_xdpsq *sq,
 
 	mlx5e_xdp_mpwqe_add_dseg(sq, xdptxd, stats);
 
-	if (unlikely(mlx5e_xdp_no_room_for_inline_pkt(session) ||
-		     session->ds_count == MLX5E_XDP_MPW_MAX_NUM_DS))
+	if (unlikely(session->complete ||
+		     session->ds_count == session->max_ds_count))
 		mlx5e_xdp_mpwqe_complete(sq);
 
 	mlx5e_xdpi_fifo_push(&sq->db.xdpi_fifo, xdpi);

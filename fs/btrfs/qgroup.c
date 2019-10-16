@@ -21,7 +21,7 @@
 #include "backref.h"
 #include "extent_io.h"
 #include "qgroup.h"
-#include "block-group.h"
+
 
 /* TODO XXX FIXME
  *  - subvol delete -> delete when ref goes to 0? delete limits also?
@@ -1312,9 +1312,8 @@ static int __del_qgroup_relation(struct btrfs_trans_handle *trans, u64 src,
 	struct btrfs_qgroup *member;
 	struct btrfs_qgroup_list *list;
 	struct ulist *tmp;
-	bool found = false;
 	int ret = 0;
-	int ret2;
+	int err;
 
 	tmp = ulist_alloc(GFP_KERNEL);
 	if (!tmp)
@@ -1328,39 +1327,28 @@ static int __del_qgroup_relation(struct btrfs_trans_handle *trans, u64 src,
 
 	member = find_qgroup_rb(fs_info, src);
 	parent = find_qgroup_rb(fs_info, dst);
-	/*
-	 * The parent/member pair doesn't exist, then try to delete the dead
-	 * relation items only.
-	 */
-	if (!member || !parent)
-		goto delete_item;
+	if (!member || !parent) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	/* check if such qgroup relation exist firstly */
 	list_for_each_entry(list, &member->groups, next_group) {
-		if (list->group == parent) {
-			found = true;
-			break;
-		}
+		if (list->group == parent)
+			goto exist;
 	}
-
-delete_item:
+	ret = -ENOENT;
+	goto out;
+exist:
 	ret = del_qgroup_relation_item(trans, src, dst);
-	if (ret < 0 && ret != -ENOENT)
-		goto out;
-	ret2 = del_qgroup_relation_item(trans, dst, src);
-	if (ret2 < 0 && ret2 != -ENOENT)
-		goto out;
+	err = del_qgroup_relation_item(trans, dst, src);
+	if (err && !ret)
+		ret = err;
 
-	/* At least one deletion succeeded, return 0 */
-	if (!ret || !ret2)
-		ret = 0;
-
-	if (found) {
-		spin_lock(&fs_info->qgroup_lock);
-		del_relation_rb(fs_info, src, dst);
-		ret = quick_update_accounting(fs_info, tmp, src, dst, -1);
-		spin_unlock(&fs_info->qgroup_lock);
-	}
+	spin_lock(&fs_info->qgroup_lock);
+	del_relation_rb(fs_info, src, dst);
+	ret = quick_update_accounting(fs_info, tmp, src, dst, -1);
+	spin_unlock(&fs_info->qgroup_lock);
 out:
 	ulist_free(tmp);
 	return ret;
@@ -2626,7 +2614,6 @@ int btrfs_qgroup_inherit(struct btrfs_trans_handle *trans, u64 srcid,
 	int ret = 0;
 	int i;
 	u64 *i_qgroups;
-	bool committing = false;
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_root *quota_root;
 	struct btrfs_qgroup *srcgroup;
@@ -2634,25 +2621,7 @@ int btrfs_qgroup_inherit(struct btrfs_trans_handle *trans, u64 srcid,
 	u32 level_size = 0;
 	u64 nums;
 
-	/*
-	 * There are only two callers of this function.
-	 *
-	 * One in create_subvol() in the ioctl context, which needs to hold
-	 * the qgroup_ioctl_lock.
-	 *
-	 * The other one in create_pending_snapshot() where no other qgroup
-	 * code can modify the fs as they all need to either start a new trans
-	 * or hold a trans handler, thus we don't need to hold
-	 * qgroup_ioctl_lock.
-	 * This would avoid long and complex lock chain and make lockdep happy.
-	 */
-	spin_lock(&fs_info->trans_lock);
-	if (trans->transaction->state == TRANS_STATE_COMMIT_DOING)
-		committing = true;
-	spin_unlock(&fs_info->trans_lock);
-
-	if (!committing)
-		mutex_lock(&fs_info->qgroup_ioctl_lock);
+	mutex_lock(&fs_info->qgroup_ioctl_lock);
 	if (!test_bit(BTRFS_FS_QUOTA_ENABLED, &fs_info->flags))
 		goto out;
 
@@ -2816,8 +2785,7 @@ int btrfs_qgroup_inherit(struct btrfs_trans_handle *trans, u64 srcid,
 unlock:
 	spin_unlock(&fs_info->qgroup_lock);
 out:
-	if (!committing)
-		mutex_unlock(&fs_info->qgroup_ioctl_lock);
+	mutex_unlock(&fs_info->qgroup_ioctl_lock);
 	return ret;
 }
 
@@ -3166,6 +3134,9 @@ out:
 	btrfs_free_path(path);
 
 	mutex_lock(&fs_info->qgroup_rescan_lock);
+	if (!btrfs_fs_closing(fs_info))
+		fs_info->qgroup_flags &= ~BTRFS_QGROUP_STATUS_FLAG_RESCAN;
+
 	if (err > 0 &&
 	    fs_info->qgroup_flags & BTRFS_QGROUP_STATUS_FLAG_INCONSISTENT) {
 		fs_info->qgroup_flags &= ~BTRFS_QGROUP_STATUS_FLAG_INCONSISTENT;
@@ -3181,30 +3152,16 @@ out:
 	trans = btrfs_start_transaction(fs_info->quota_root, 1);
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
-		trans = NULL;
 		btrfs_err(fs_info,
 			  "fail to start transaction for status update: %d",
 			  err);
+		goto done;
 	}
-
-	mutex_lock(&fs_info->qgroup_rescan_lock);
-	if (!btrfs_fs_closing(fs_info))
-		fs_info->qgroup_flags &= ~BTRFS_QGROUP_STATUS_FLAG_RESCAN;
-	if (trans) {
-		ret = update_qgroup_status_item(trans);
-		if (ret < 0) {
-			err = ret;
-			btrfs_err(fs_info, "fail to update qgroup status: %d",
-				  err);
-		}
+	ret = update_qgroup_status_item(trans);
+	if (ret < 0) {
+		err = ret;
+		btrfs_err(fs_info, "fail to update qgroup status: %d", err);
 	}
-	fs_info->qgroup_rescan_running = false;
-	complete_all(&fs_info->qgroup_rescan_completion);
-	mutex_unlock(&fs_info->qgroup_rescan_lock);
-
-	if (!trans)
-		return;
-
 	btrfs_end_transaction(trans);
 
 	if (btrfs_fs_closing(fs_info)) {
@@ -3215,6 +3172,12 @@ out:
 	} else {
 		btrfs_err(fs_info, "qgroup scan failed with %d", err);
 	}
+
+done:
+	mutex_lock(&fs_info->qgroup_rescan_lock);
+	fs_info->qgroup_rescan_running = false;
+	mutex_unlock(&fs_info->qgroup_rescan_lock);
+	complete_all(&fs_info->qgroup_rescan_completion);
 }
 
 /*
@@ -3442,9 +3405,6 @@ cleanup:
 	while ((unode = ulist_next(&reserved->range_changed, &uiter)))
 		clear_extent_bit(&BTRFS_I(inode)->io_tree, unode->val,
 				 unode->aux, EXTENT_QGROUP_RESERVED, 0, 0, NULL);
-	/* Also free data bytes of already reserved one */
-	btrfs_qgroup_free_refroot(root->fs_info, root->root_key.objectid,
-				  orig_reserved, BTRFS_QGROUP_RSV_DATA);
 	extent_changeset_release(reserved);
 	return ret;
 }
@@ -3489,7 +3449,7 @@ static int qgroup_free_reserved_data(struct inode *inode,
 		 * EXTENT_QGROUP_RESERVED, we won't double free.
 		 * So not need to rush.
 		 */
-		ret = clear_record_extent_bits(&BTRFS_I(inode)->io_tree,
+		ret = clear_record_extent_bits(&BTRFS_I(inode)->io_failure_tree,
 				free_start, free_start + free_len - 1,
 				EXTENT_QGROUP_RESERVED, &changeset);
 		if (ret < 0)

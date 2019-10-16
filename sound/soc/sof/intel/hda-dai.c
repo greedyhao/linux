@@ -210,13 +210,9 @@ static int hda_link_hw_params(struct snd_pcm_substream *substream,
 	int stream_tag;
 	int ret;
 
-	/* get stored dma data if resuming from system suspend */
-	link_dev = snd_soc_dai_get_dma_data(dai, substream);
-	if (!link_dev) {
-		link_dev = hda_link_stream_assign(bus, substream);
-		if (!link_dev)
-			return -EBUSY;
-	}
+	link_dev = hda_link_stream_assign(bus, substream);
+	if (!link_dev)
+		return -EBUSY;
 
 	stream_tag = hdac_stream(link_dev)->stream_tag;
 
@@ -229,6 +225,8 @@ static int hda_link_hw_params(struct snd_pcm_substream *substream,
 		return ret;
 
 	snd_soc_dai_set_dma_data(dai, substream, (void *)link_dev);
+
+	hda_stream->hw_params_upon_resume = 0;
 
 	link = snd_hdac_ext_bus_get_link(bus, codec_dai->component->name);
 	if (!link)
@@ -269,7 +267,8 @@ static int hda_link_pcm_prepare(struct snd_pcm_substream *substream,
 
 	hda_stream = hstream_to_sof_hda_stream(link_dev);
 
-	if (link_dev->link_prepared)
+	/* setup hw_params again only if resuming from system suspend */
+	if (!hda_stream->hw_params_upon_resume)
 		return 0;
 
 	dev_dbg(sdev->dev, "hda: prepare stream dir %d\n", substream->stream);
@@ -318,25 +317,22 @@ static int hda_link_pcm_trigger(struct snd_pcm_substream *substream,
 		snd_hdac_ext_link_stream_start(link_dev);
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
-	case SNDRV_PCM_TRIGGER_STOP:
 		/*
-		 * clear link DMA channel. It will be assigned when
+		 * clear and release link DMA channel. It will be assigned when
 		 * hw_params is set up again after resume.
 		 */
 		ret = hda_link_config_ipc(hda_stream, dai->name,
 					  DMA_CHAN_INVALID, substream->stream);
 		if (ret < 0)
 			return ret;
-
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-			stream_tag = hdac_stream(link_dev)->stream_tag;
-			snd_hdac_ext_link_clear_stream_id(link, stream_tag);
-		}
-
-		link_dev->link_prepared = 0;
+		stream_tag = hdac_stream(link_dev)->stream_tag;
+		snd_hdac_ext_link_clear_stream_id(link, stream_tag);
+		snd_hdac_ext_stream_release(link_dev,
+					    HDAC_EXT_STREAM_TYPE_LINK);
 
 		/* fallthrough */
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+	case SNDRV_PCM_TRIGGER_STOP:
 		snd_hdac_ext_link_stream_clear(link_dev);
 		break;
 	default:
@@ -373,12 +369,8 @@ static int hda_link_hw_free(struct snd_pcm_substream *substream,
 	if (!link)
 		return -EINVAL;
 
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		stream_tag = hdac_stream(link_dev)->stream_tag;
-		snd_hdac_ext_link_clear_stream_id(link, stream_tag);
-	}
-
-	snd_soc_dai_set_dma_data(dai, substream, NULL);
+	stream_tag = hdac_stream(link_dev)->stream_tag;
+	snd_hdac_ext_link_clear_stream_id(link, stream_tag);
 	snd_hdac_ext_stream_release(link_dev, HDAC_EXT_STREAM_TYPE_LINK);
 	link_dev->link_prepared = 0;
 

@@ -1228,7 +1228,15 @@ hashalg_fail:
 
 static int __init init_digests(void)
 {
+	u8 digest[TPM_MAX_DIGEST_SIZE];
+	int ret;
 	int i;
+
+	ret = tpm_get_random(chip, digest, TPM_MAX_DIGEST_SIZE);
+	if (ret < 0)
+		return ret;
+	if (ret < TPM_MAX_DIGEST_SIZE)
+		return -EFAULT;
 
 	digests = kcalloc(chip->nr_allocated_banks, sizeof(*digests),
 			  GFP_KERNEL);
@@ -1236,7 +1244,7 @@ static int __init init_digests(void)
 		return -ENOMEM;
 
 	for (i = 0; i < chip->nr_allocated_banks; i++)
-		digests[i].alg_id = chip->allocated_banks[i].alg_id;
+		memcpy(digests[i].digest, digest, TPM_MAX_DIGEST_SIZE);
 
 	return 0;
 }

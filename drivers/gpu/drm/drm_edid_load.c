@@ -7,15 +7,12 @@
 
 */
 
-#include <linux/firmware.h>
 #include <linux/module.h>
-#include <linux/platform_device.h>
-
+#include <linux/firmware.h>
+#include <drm/drmP.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
-#include <drm/drm_drv.h>
 #include <drm/drm_edid.h>
-#include <drm/drm_print.h>
 
 static char edid_firmware[PATH_MAX];
 module_param_string(edid_firmware, edid_firmware, sizeof(edid_firmware), 0644);
@@ -281,8 +278,6 @@ struct edid *drm_load_edid_firmware(struct drm_connector *connector)
 	 * the last one found one as a fallback.
 	 */
 	fwstr = kstrdup(edid_firmware, GFP_KERNEL);
-	if (!fwstr)
-		return ERR_PTR(-ENOMEM);
 	edidstr = fwstr;
 
 	while ((edidname = strsep(&edidstr, ","))) {

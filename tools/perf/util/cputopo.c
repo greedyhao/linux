@@ -3,14 +3,11 @@
 #include <sys/utsname.h>
 #include <inttypes.h>
 #include <stdlib.h>
-#include <string.h>
 #include <api/fs/fs.h>
 #include <linux/zalloc.h>
-#include <perf/cpumap.h>
 
 #include "cputopo.h"
 #include "cpumap.h"
-#include "debug.h"
 #include "env.h"
 
 #define CORE_SIB_FMT \
@@ -179,13 +176,13 @@ struct cpu_topology *cpu_topology__new(void)
 	size_t sz;
 	long ncpus;
 	int ret = -1;
-	struct perf_cpu_map *map;
+	struct cpu_map *map;
 	bool has_die = has_die_topology();
 
 	ncpus = cpu__max_present_cpu();
 
 	/* build online CPU map */
-	map = perf_cpu_map__new(NULL);
+	map = cpu_map__new(NULL);
 	if (map == NULL) {
 		pr_debug("failed to get system cpumap\n");
 		return NULL;
@@ -222,7 +219,7 @@ struct cpu_topology *cpu_topology__new(void)
 	}
 
 out_free:
-	perf_cpu_map__put(map);
+	cpu_map__put(map);
 	if (ret) {
 		cpu_topology__delete(tp);
 		tp = NULL;
@@ -292,7 +289,7 @@ err:
 
 struct numa_topology *numa_topology__new(void)
 {
-	struct perf_cpu_map *node_map = NULL;
+	struct cpu_map *node_map = NULL;
 	struct numa_topology *tp = NULL;
 	char path[MAXPATHLEN];
 	char *buf = NULL;
@@ -315,7 +312,7 @@ struct numa_topology *numa_topology__new(void)
 	if (c)
 		*c = '\0';
 
-	node_map = perf_cpu_map__new(buf);
+	node_map = cpu_map__new(buf);
 	if (!node_map)
 		goto out;
 
@@ -338,7 +335,7 @@ struct numa_topology *numa_topology__new(void)
 out:
 	free(buf);
 	fclose(fp);
-	perf_cpu_map__put(node_map);
+	cpu_map__put(node_map);
 	return tp;
 }
 

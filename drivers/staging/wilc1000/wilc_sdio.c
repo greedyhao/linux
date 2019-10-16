@@ -4,7 +4,6 @@
  * All rights reserved.
  */
 
-#include <linux/clk.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/host.h>
 
@@ -152,12 +151,6 @@ static int wilc_sdio_probe(struct sdio_func *func,
 	wilc->dev = &func->dev;
 	wilc->gpio_irq = gpio;
 
-	wilc->rtc_clk = devm_clk_get(&func->card->dev, "rtc_clk");
-	if (PTR_ERR_OR_ZERO(wilc->rtc_clk) == -EPROBE_DEFER)
-		return -EPROBE_DEFER;
-	else if (!IS_ERR(wilc->rtc_clk))
-		clk_prepare_enable(wilc->rtc_clk);
-
 	dev_info(&func->dev, "Driver Initializing success\n");
 	return 0;
 }
@@ -169,10 +162,6 @@ static void wilc_sdio_remove(struct sdio_func *func)
 	/* free the GPIO in module remove */
 	if (wilc->gpio_irq)
 		gpiod_put(wilc->gpio_irq);
-
-	if (!IS_ERR(wilc->rtc_clk))
-		clk_disable_unprepare(wilc->rtc_clk);
-
 	wilc_netdev_cleanup(wilc);
 }
 
@@ -204,10 +193,9 @@ static int wilc_sdio_suspend(struct device *dev)
 	dev_info(dev, "sdio suspend\n");
 	chip_wakeup(wilc);
 
-	if (!IS_ERR(wilc->rtc_clk))
-		clk_disable_unprepare(wilc->rtc_clk);
-
-	if (wilc->suspend_event) {
+	if (!wilc->suspend_event) {
+		wilc_chip_sleep_manually(wilc);
+	} else {
 		host_sleep_notify(wilc);
 		chip_allow_sleep(wilc);
 	}

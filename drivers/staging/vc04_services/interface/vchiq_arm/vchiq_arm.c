@@ -2824,6 +2824,7 @@ vchiq_release_internal(struct vchiq_state *state, struct vchiq_service *service)
 	VCHIQ_STATUS_T ret = VCHIQ_SUCCESS;
 	char entity[16];
 	int *entity_uc;
+	int local_uc, local_entity_uc;
 
 	if (!arm_state)
 		goto out;
@@ -2848,8 +2849,8 @@ vchiq_release_internal(struct vchiq_state *state, struct vchiq_service *service)
 		ret = VCHIQ_ERROR;
 		goto unlock;
 	}
-	--arm_state->videocore_use_count;
-	--(*entity_uc);
+	local_uc = --arm_state->videocore_use_count;
+	local_entity_uc = --(*entity_uc);
 
 	if (!vchiq_videocore_wanted(state)) {
 		if (vchiq_platform_use_suspend_timer() &&

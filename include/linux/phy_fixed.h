@@ -11,7 +11,6 @@ struct fixed_phy_status {
 };
 
 struct device_node;
-struct gpio_desc;
 
 #if IS_ENABLED(CONFIG_FIXED_PHY)
 extern int fixed_phy_change_carrier(struct net_device *dev, bool new_carrier);

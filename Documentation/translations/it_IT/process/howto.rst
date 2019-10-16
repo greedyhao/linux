@@ -129,7 +129,7 @@ Di seguito una lista di file che sono presenti nei sorgente del kernel e che
 		https://www.ozlabs.org/~akpm/stuff/tpp.txt
 
 	"Linux kernel patch submission format"
-		https://web.archive.org/web/20180829112450/http://linux.yyz.us/patch-format.html
+		http://linux.yyz.us/patch-format.html
 
   :ref:`Documentation/translations/it_IT/process/stable-api-nonsense.rst <it_stable_api_nonsense>`
 

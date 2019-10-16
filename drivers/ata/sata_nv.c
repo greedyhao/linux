@@ -1122,10 +1122,14 @@ static int nv_adma_port_start(struct ata_port *ap)
 
 	/*
 	 * Now that the legacy PRD and padding buffer are allocated we can
-	 * raise the DMA mask to allocate the CPB/APRD table.
+	 * try to raise the DMA mask to allocate the CPB/APRD table.
 	 */
-	dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
-
+	rc = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+	if (rc) {
+		rc = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+		if (rc)
+			return rc;
+	}
 	pp->adma_dma_mask = *dev->dma_mask;
 
 	mem = dmam_alloc_coherent(dev, NV_ADMA_PORT_PRIV_DMA_SZ,

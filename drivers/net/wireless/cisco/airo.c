@@ -5441,18 +5441,11 @@ static int proc_BSSList_open( struct inode *inode, struct file *file ) {
 			Cmd cmd;
 			Resp rsp;
 
-			if (ai->flags & FLAG_RADIO_MASK) {
-				kfree(data->rbuffer);
-				kfree(file->private_data);
-				return -ENETDOWN;
-			}
+			if (ai->flags & FLAG_RADIO_MASK) return -ENETDOWN;
 			memset(&cmd, 0, sizeof(cmd));
 			cmd.cmd=CMD_LISTBSS;
-			if (down_interruptible(&ai->sem)) {
-				kfree(data->rbuffer);
-				kfree(file->private_data);
+			if (down_interruptible(&ai->sem))
 				return -ERESTARTSYS;
-			}
 			issuecommand(ai, &cmd, &rsp);
 			up(&ai->sem);
 			data->readlen = 0;

@@ -1,15 +1,11 @@
-================
-Recursion issues
-================
+Recursion issue #1
+------------------
 
-issue #1
---------
+ .. include:: Kconfig.recursion-issue-01
+    :literal:
 
-.. literalinclude:: Kconfig.recursion-issue-01
-   :language: kconfig
+Recursion issue #2
+------------------
 
-issue #2
---------
-
-.. literalinclude:: Kconfig.recursion-issue-02
-   :language: kconfig
+ .. include:: Kconfig.recursion-issue-02
+    :literal:

@@ -1980,7 +1980,7 @@ netxen_map_tx_skb(struct pci_dev *pdev,
 		struct sk_buff *skb, struct netxen_cmd_buffer *pbuf)
 {
 	struct netxen_skb_frag *nf;
-	skb_frag_t *frag;
+	struct skb_frag_struct *frag;
 	int i, nr_frags;
 	dma_addr_t map;
 
@@ -2043,7 +2043,7 @@ netxen_nic_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	struct pci_dev *pdev;
 	int i, k;
 	int delta = 0;
-	skb_frag_t *frag;
+	struct skb_frag_struct *frag;
 
 	u32 producer;
 	int frag_count;

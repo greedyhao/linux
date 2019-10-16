@@ -1,4 +1,4 @@
-.. SPDX-License-Identifier: GPL-2.0
+:orphan:
 
 ======================
 PPS - Pulse Per Second

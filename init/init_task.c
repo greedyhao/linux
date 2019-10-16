@@ -30,6 +30,8 @@ static struct signal_struct init_signals = {
 	.posix_timers = LIST_HEAD_INIT(init_signals.posix_timers),
 	.cputimer	= {
 		.cputime_atomic	= INIT_CPUTIME_ATOMIC,
+		.running	= false,
+		.checking_timer = false,
 	},
 #endif
 	INIT_CPU_TIMERS(init_signals)
@@ -172,7 +174,7 @@ struct task_struct init_task
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 	.ret_stack	= NULL,
 #endif
-#if defined(CONFIG_TRACING) && defined(CONFIG_PREEMPTION)
+#if defined(CONFIG_TRACING) && defined(CONFIG_PREEMPT)
 	.trace_recursion = 0,
 #endif
 #ifdef CONFIG_LIVEPATCH

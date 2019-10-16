@@ -184,8 +184,7 @@ static int replicator_probe(struct device *dev, struct resource *res)
 
 	if (is_of_node(dev_fwnode(dev)) &&
 	    of_device_is_compatible(dev->of_node, "arm,coresight-replicator"))
-		dev_warn_once(dev,
-			      "Uses OBSOLETE CoreSight replicator binding\n");
+		pr_warn_once("Uses OBSOLETE CoreSight replicator binding\n");
 
 	desc.name = coresight_alloc_device_name(&replicator_devs, dev);
 	if (!desc.name)

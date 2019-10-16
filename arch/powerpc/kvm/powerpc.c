@@ -50,11 +50,6 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 	return !!(v->arch.pending_exceptions) || kvm_request_pending(v);
 }
 
-bool kvm_arch_dy_runnable(struct kvm_vcpu *vcpu)
-{
-	return kvm_arch_vcpu_runnable(vcpu);
-}
-
 bool kvm_arch_vcpu_in_kernel(struct kvm_vcpu *vcpu)
 {
 	return false;
@@ -457,6 +452,16 @@ err_out:
 	return -EINVAL;
 }
 
+bool kvm_arch_has_vcpu_debugfs(void)
+{
+	return false;
+}
+
+int kvm_arch_create_vcpu_debugfs(struct kvm_vcpu *vcpu)
+{
+	return 0;
+}
+
 void kvm_arch_destroy_vm(struct kvm *kvm)
 {
 	unsigned int i;
@@ -561,8 +566,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		 * a POWER9 processor) and the PowerNV platform, as
 		 * nested is not yet supported.
 		 */
-		r = xive_enabled() && !!cpu_has_feature(CPU_FTR_HVMODE) &&
-			kvmppc_xive_native_supported();
+		r = xive_enabled() && !!cpu_has_feature(CPU_FTR_HVMODE);
 		break;
 #endif
 

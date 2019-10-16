@@ -416,10 +416,8 @@ device_node *regulator_of_get_init_node(struct device *dev,
 		if (!name)
 			name = child->name;
 
-		if (!strcmp(desc->of_match, name)) {
-			of_node_put(search);
+		if (!strcmp(desc->of_match, name))
 			return of_node_get(child);
-		}
 	}
 
 	of_node_put(search);
@@ -462,11 +460,16 @@ error:
 	return NULL;
 }
 
+static int of_node_match(struct device *dev, const void *data)
+{
+	return dev->of_node == data;
+}
+
 struct regulator_dev *of_find_regulator_by_node(struct device_node *np)
 {
 	struct device *dev;
 
-	dev = class_find_device_by_of_node(&regulator_class, np);
+	dev = class_find_device(&regulator_class, NULL, np, of_node_match);
 
 	return dev ? dev_to_rdev(dev) : NULL;
 }

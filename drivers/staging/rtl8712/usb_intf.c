@@ -389,7 +389,7 @@ static int r871xu_drv_init(struct usb_interface *pusb_intf,
 	}
 	/* step 4. */
 	status = r8712_init_drv_sw(padapter);
-	if (status)
+	if (status == _FAIL)
 		goto error;
 	/* step 5. read efuse/eeprom data and get mac_addr */
 	{

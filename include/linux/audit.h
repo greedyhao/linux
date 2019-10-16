@@ -11,6 +11,7 @@
 
 #include <linux/sched.h>
 #include <linux/ptrace.h>
+#include <linux/namei.h>  /* LOOKUP_* */
 #include <uapi/linux/audit.h>
 
 #define AUDIT_INO_UNSET ((unsigned long)-1)
@@ -251,10 +252,6 @@ static inline int audit_signal_info(int sig, struct task_struct *t)
 #define audit_is_compat(arch)  false
 #endif
 
-#define AUDIT_INODE_PARENT	1	/* dentry represents the parent */
-#define AUDIT_INODE_HIDDEN	2	/* audit record should be hidden */
-#define AUDIT_INODE_NOEVAL	4	/* audit record incomplete */
-
 #ifdef CONFIG_AUDITSYSCALL
 #include <asm/syscall.h> /* for syscall_get_arch() */
 
@@ -268,6 +265,9 @@ extern void __audit_syscall_exit(int ret_success, long ret_value);
 extern struct filename *__audit_reusename(const __user char *uptr);
 extern void __audit_getname(struct filename *name);
 
+#define AUDIT_INODE_PARENT	1	/* dentry represents the parent */
+#define AUDIT_INODE_HIDDEN	2	/* audit record should be hidden */
+#define AUDIT_INODE_NOEVAL	4	/* audit record incomplete */
 extern void __audit_inode(struct filename *name, const struct dentry *dentry,
 				unsigned int flags);
 extern void __audit_file(const struct file *);
@@ -328,9 +328,16 @@ static inline void audit_getname(struct filename *name)
 }
 static inline void audit_inode(struct filename *name,
 				const struct dentry *dentry,
-				unsigned int aflags) {
-	if (unlikely(!audit_dummy_context()))
+				unsigned int flags) {
+	if (unlikely(!audit_dummy_context())) {
+		unsigned int aflags = 0;
+
+		if (flags & LOOKUP_PARENT)
+			aflags |= AUDIT_INODE_PARENT;
+		if (flags & LOOKUP_NO_EVAL)
+			aflags |= AUDIT_INODE_NOEVAL;
 		__audit_inode(name, dentry, aflags);
+	}
 }
 static inline void audit_file(struct file *file)
 {
@@ -554,7 +561,7 @@ static inline void __audit_inode_child(struct inode *parent,
 { }
 static inline void audit_inode(struct filename *name,
 				const struct dentry *dentry,
-				unsigned int aflags)
+				unsigned int parent)
 { }
 static inline void audit_file(struct file *file)
 {

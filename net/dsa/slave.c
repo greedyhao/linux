@@ -312,39 +312,6 @@ static int dsa_slave_port_attr_set(struct net_device *dev,
 	return ret;
 }
 
-static int dsa_slave_vlan_add(struct net_device *dev,
-			      const struct switchdev_obj *obj,
-			      struct switchdev_trans *trans)
-{
-	struct dsa_port *dp = dsa_slave_to_port(dev);
-	struct switchdev_obj_port_vlan vlan;
-	int err;
-
-	if (obj->orig_dev != dev)
-		return -EOPNOTSUPP;
-
-	if (dp->bridge_dev && !br_vlan_enabled(dp->bridge_dev))
-		return 0;
-
-	vlan = *SWITCHDEV_OBJ_PORT_VLAN(obj);
-
-	err = dsa_port_vlan_add(dp, &vlan, trans);
-	if (err)
-		return err;
-
-	/* We need the dedicated CPU port to be a member of the VLAN as well.
-	 * Even though drivers often handle CPU membership in special ways,
-	 * it doesn't make sense to program a PVID, so clear this flag.
-	 */
-	vlan.flags &= ~BRIDGE_VLAN_INFO_PVID;
-
-	err = dsa_port_vlan_add(dp->cpu_dp, &vlan, trans);
-	if (err)
-		return err;
-
-	return 0;
-}
-
 static int dsa_slave_port_obj_add(struct net_device *dev,
 				  const struct switchdev_obj *obj,
 				  struct switchdev_trans *trans,
@@ -372,7 +339,10 @@ static int dsa_slave_port_obj_add(struct net_device *dev,
 				       trans);
 		break;
 	case SWITCHDEV_OBJ_ID_PORT_VLAN:
-		err = dsa_slave_vlan_add(dev, obj, trans);
+		if (obj->orig_dev != dev)
+			return -EOPNOTSUPP;
+		err = dsa_port_vlan_add(dp, SWITCHDEV_OBJ_PORT_VLAN(obj),
+					trans);
 		break;
 	default:
 		err = -EOPNOTSUPP;
@@ -380,23 +350,6 @@ static int dsa_slave_port_obj_add(struct net_device *dev,
 	}
 
 	return err;
-}
-
-static int dsa_slave_vlan_del(struct net_device *dev,
-			      const struct switchdev_obj *obj)
-{
-	struct dsa_port *dp = dsa_slave_to_port(dev);
-
-	if (obj->orig_dev != dev)
-		return -EOPNOTSUPP;
-
-	if (dp->bridge_dev && !br_vlan_enabled(dp->bridge_dev))
-		return 0;
-
-	/* Do not deprogram the CPU port as it may be shared with other user
-	 * ports which can be members of this VLAN as well.
-	 */
-	return dsa_port_vlan_del(dp, SWITCHDEV_OBJ_PORT_VLAN(obj));
 }
 
 static int dsa_slave_port_obj_del(struct net_device *dev,
@@ -418,7 +371,9 @@ static int dsa_slave_port_obj_del(struct net_device *dev,
 		err = dsa_port_mdb_del(dp->cpu_dp, SWITCHDEV_OBJ_PORT_MDB(obj));
 		break;
 	case SWITCHDEV_OBJ_ID_PORT_VLAN:
-		err = dsa_slave_vlan_del(dev, obj);
+		if (obj->orig_dev != dev)
+			return -EOPNOTSUPP;
+		err = dsa_port_vlan_del(dp, SWITCHDEV_OBJ_PORT_VLAN(obj));
 		break;
 	default:
 		err = -EOPNOTSUPP;
@@ -996,7 +951,7 @@ static int dsa_slave_setup_tc_block(struct net_device *dev,
 				    struct flow_block_offload *f)
 {
 	struct flow_block_cb *block_cb;
-	flow_setup_cb_t *cb;
+	tc_setup_cb_t *cb;
 
 	if (f->binder_type == FLOW_BLOCK_BINDER_TYPE_CLSACT_INGRESS)
 		cb = dsa_slave_setup_tc_block_cb_ig;
@@ -1012,7 +967,7 @@ static int dsa_slave_setup_tc_block(struct net_device *dev,
 		if (flow_block_cb_is_busy(cb, dev, &dsa_slave_block_cb_list))
 			return -EBUSY;
 
-		block_cb = flow_block_cb_alloc(cb, dev, dev, NULL);
+		block_cb = flow_block_cb_alloc(f->net, cb, dev, dev, NULL);
 		if (IS_ERR(block_cb))
 			return PTR_ERR(block_cb);
 
@@ -1020,7 +975,7 @@ static int dsa_slave_setup_tc_block(struct net_device *dev,
 		list_add_tail(&block_cb->driver_list, &dsa_slave_block_cb_list);
 		return 0;
 	case FLOW_BLOCK_UNBIND:
-		block_cb = flow_block_cb_lookup(f->block, cb, dev);
+		block_cb = flow_block_cb_lookup(f, cb, dev);
 		if (!block_cb)
 			return -ENOENT;
 
@@ -1035,16 +990,12 @@ static int dsa_slave_setup_tc_block(struct net_device *dev,
 static int dsa_slave_setup_tc(struct net_device *dev, enum tc_setup_type type,
 			      void *type_data)
 {
-	struct dsa_port *dp = dsa_slave_to_port(dev);
-	struct dsa_switch *ds = dp->ds;
-
-	if (type == TC_SETUP_BLOCK)
+	switch (type) {
+	case TC_SETUP_BLOCK:
 		return dsa_slave_setup_tc_block(dev, type_data);
-
-	if (!ds->ops->port_setup_tc)
+	default:
 		return -EOPNOTSUPP;
-
-	return ds->ops->port_setup_tc(ds, dp->index, type, type_data);
+	}
 }
 
 static void dsa_slave_get_stats64(struct net_device *dev,
@@ -1122,9 +1073,6 @@ static int dsa_slave_vlan_rx_add_vid(struct net_device *dev, __be16 proto,
 	 * need to emulate the switchdev prepare + commit phase.
 	 */
 	if (dp->bridge_dev) {
-		if (!br_vlan_enabled(dp->bridge_dev))
-			return 0;
-
 		/* br_vlan_get_info() returns -EINVAL or -ENOENT if the
 		 * device, respectively the VID is not found, returning
 		 * 0 means success, which is a failure for us here.
@@ -1134,15 +1082,8 @@ static int dsa_slave_vlan_rx_add_vid(struct net_device *dev, __be16 proto,
 			return -EBUSY;
 	}
 
-	ret = dsa_port_vid_add(dp, vid, 0);
-	if (ret)
-		return ret;
-
-	ret = dsa_port_vid_add(dp->cpu_dp, vid, 0);
-	if (ret)
-		return ret;
-
-	return 0;
+	/* This API only allows programming tagged, non-PVID VIDs */
+	return dsa_port_vid_add(dp, vid, 0);
 }
 
 static int dsa_slave_vlan_rx_kill_vid(struct net_device *dev, __be16 proto,
@@ -1156,9 +1097,6 @@ static int dsa_slave_vlan_rx_kill_vid(struct net_device *dev, __be16 proto,
 	 * need to emulate the switchdev prepare + commit phase.
 	 */
 	if (dp->bridge_dev) {
-		if (!br_vlan_enabled(dp->bridge_dev))
-			return 0;
-
 		/* br_vlan_get_info() returns -EINVAL or -ENOENT if the
 		 * device, respectively the VID is not found, returning
 		 * 0 means success, which is a failure for us here.
@@ -1168,10 +1106,11 @@ static int dsa_slave_vlan_rx_kill_vid(struct net_device *dev, __be16 proto,
 			return -EBUSY;
 	}
 
-	/* Do not deprogram the CPU port as it may be shared with other user
-	 * ports which can be members of this VLAN as well.
-	 */
-	return dsa_port_vid_del(dp, vid);
+	ret = dsa_port_vid_del(dp, vid);
+	if (ret == -EOPNOTSUPP)
+		ret = 0;
+
+	return ret;
 }
 
 static const struct ethtool_ops dsa_slave_ethtool_ops = {
@@ -1418,9 +1357,8 @@ int dsa_slave_create(struct dsa_port *port)
 	if (slave_dev == NULL)
 		return -ENOMEM;
 
-	slave_dev->features = master->vlan_features | NETIF_F_HW_TC;
-	if (ds->ops->port_vlan_add && ds->ops->port_vlan_del)
-		slave_dev->features |= NETIF_F_HW_VLAN_CTAG_FILTER;
+	slave_dev->features = master->vlan_features | NETIF_F_HW_TC |
+				NETIF_F_HW_VLAN_CTAG_FILTER;
 	slave_dev->hw_features |= NETIF_F_HW_TC;
 	slave_dev->ethtool_ops = &dsa_slave_ethtool_ops;
 	if (!IS_ERR_OR_NULL(port->mac))

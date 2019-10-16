@@ -37,10 +37,12 @@ void av7110_ir_handler(struct av7110 *av7110, u32 ircom)
 			proto = RC_PROTO_RC5;
 			break;
 
-		case IR_RCMM: /* RCMM: 32 bits scancode */
-			scancode = ircom & ~0x8000;
+		case IR_RCMM: /* RCMM: ? bits device address, ? bits command */
+			command = ircom & 0xff;
+			addr = (ircom >> 8) & 0x1f;
+			scancode = ircom;
 			toggle = ircom & 0x8000;
-			proto = RC_PROTO_RCMM32;
+			proto = RC_PROTO_UNKNOWN;
 			break;
 
 		case IR_RC5_EXT:
@@ -81,9 +83,9 @@ static int change_protocol(struct rc_dev *rcdev, u64 *rc_type)
 	struct av7110 *av7110 = rcdev->priv;
 	u32 ir_config;
 
-	if (*rc_type & RC_PROTO_BIT_RCMM32) {
+	if (*rc_type & RC_PROTO_BIT_UNKNOWN) {
 		ir_config = IR_RCMM;
-		*rc_type = RC_PROTO_BIT_RCMM32;
+		*rc_type = RC_PROTO_UNKNOWN;
 	} else if (*rc_type & RC_PROTO_BIT_RC5) {
 		if (FW_VERSION(av7110->arm_app) >= 0x2620)
 			ir_config = IR_RC5_EXT;
@@ -131,7 +133,7 @@ int av7110_ir_init(struct av7110 *av7110)
 	}
 
 	rcdev->dev.parent = &pci->dev;
-	rcdev->allowed_protocols = RC_PROTO_BIT_RC5 | RC_PROTO_BIT_RCMM32;
+	rcdev->allowed_protocols = RC_PROTO_BIT_RC5 | RC_PROTO_BIT_UNKNOWN;
 	rcdev->change_protocol = change_protocol;
 	rcdev->map_name = RC_MAP_HAUPPAUGE;
 	rcdev->priv = av7110;

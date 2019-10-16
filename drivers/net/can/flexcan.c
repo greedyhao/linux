@@ -24,7 +24,6 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
-#include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/regmap.h>
 
@@ -267,7 +266,6 @@ struct flexcan_stop_mode {
 struct flexcan_priv {
 	struct can_priv can;
 	struct can_rx_offload offload;
-	struct device *dev;
 
 	struct flexcan_regs __iomem *regs;
 	struct flexcan_mb __iomem *tx_mb;
@@ -275,8 +273,6 @@ struct flexcan_priv {
 	u8 tx_mb_idx;
 	u8 mb_count;
 	u8 mb_size;
-	u8 clk_src;	/* clock source of CAN Protocol Engine */
-
 	u32 reg_ctrl_default;
 	u32 reg_imask1_default;
 	u32 reg_imask2_default;
@@ -404,10 +400,9 @@ static void flexcan_enable_wakeup_irq(struct flexcan_priv *priv, bool enable)
 	priv->write(reg_mcr, &regs->mcr);
 }
 
-static inline int flexcan_enter_stop_mode(struct flexcan_priv *priv)
+static inline void flexcan_enter_stop_mode(struct flexcan_priv *priv)
 {
 	struct flexcan_regs __iomem *regs = priv->regs;
-	unsigned int ackval;
 	u32 reg_mcr;
 
 	reg_mcr = priv->read(&regs->mcr);
@@ -417,37 +412,20 @@ static inline int flexcan_enter_stop_mode(struct flexcan_priv *priv)
 	/* enable stop request */
 	regmap_update_bits(priv->stm.gpr, priv->stm.req_gpr,
 			   1 << priv->stm.req_bit, 1 << priv->stm.req_bit);
-
-	/* get stop acknowledgment */
-	if (regmap_read_poll_timeout(priv->stm.gpr, priv->stm.ack_gpr,
-				     ackval, ackval & (1 << priv->stm.ack_bit),
-				     0, FLEXCAN_TIMEOUT_US))
-		return -ETIMEDOUT;
-
-	return 0;
 }
 
-static inline int flexcan_exit_stop_mode(struct flexcan_priv *priv)
+static inline void flexcan_exit_stop_mode(struct flexcan_priv *priv)
 {
 	struct flexcan_regs __iomem *regs = priv->regs;
-	unsigned int ackval;
 	u32 reg_mcr;
 
 	/* remove stop request */
 	regmap_update_bits(priv->stm.gpr, priv->stm.req_gpr,
 			   1 << priv->stm.req_bit, 0);
 
-	/* get stop acknowledgment */
-	if (regmap_read_poll_timeout(priv->stm.gpr, priv->stm.ack_gpr,
-				     ackval, !(ackval & (1 << priv->stm.ack_bit)),
-				     0, FLEXCAN_TIMEOUT_US))
-		return -ETIMEDOUT;
-
 	reg_mcr = priv->read(&regs->mcr);
 	reg_mcr &= ~FLEXCAN_MCR_SLF_WAK;
 	priv->write(reg_mcr, &regs->mcr);
-
-	return 0;
 }
 
 static inline void flexcan_error_irq_enable(const struct flexcan_priv *priv)
@@ -464,27 +442,6 @@ static inline void flexcan_error_irq_disable(const struct flexcan_priv *priv)
 	u32 reg_ctrl = (priv->reg_ctrl_default & ~FLEXCAN_CTRL_ERR_MSK);
 
 	priv->write(reg_ctrl, &regs->ctrl);
-}
-
-static int flexcan_clks_enable(const struct flexcan_priv *priv)
-{
-	int err;
-
-	err = clk_prepare_enable(priv->clk_ipg);
-	if (err)
-		return err;
-
-	err = clk_prepare_enable(priv->clk_per);
-	if (err)
-		clk_disable_unprepare(priv->clk_ipg);
-
-	return err;
-}
-
-static void flexcan_clks_disable(const struct flexcan_priv *priv)
-{
-	clk_disable_unprepare(priv->clk_per);
-	clk_disable_unprepare(priv->clk_ipg);
 }
 
 static inline int flexcan_transceiver_enable(const struct flexcan_priv *priv)
@@ -613,13 +570,19 @@ static int flexcan_get_berr_counter(const struct net_device *dev,
 	const struct flexcan_priv *priv = netdev_priv(dev);
 	int err;
 
-	err = pm_runtime_get_sync(priv->dev);
-	if (err < 0)
+	err = clk_prepare_enable(priv->clk_ipg);
+	if (err)
 		return err;
+
+	err = clk_prepare_enable(priv->clk_per);
+	if (err)
+		goto out_disable_ipg;
 
 	err = __flexcan_get_berr_counter(dev, bec);
 
-	pm_runtime_put(priv->dev);
+	clk_disable_unprepare(priv->clk_per);
+ out_disable_ipg:
+	clk_disable_unprepare(priv->clk_ipg);
 
 	return err;
 }
@@ -1252,13 +1215,17 @@ static int flexcan_open(struct net_device *dev)
 	struct flexcan_priv *priv = netdev_priv(dev);
 	int err;
 
-	err = pm_runtime_get_sync(priv->dev);
-	if (err < 0)
+	err = clk_prepare_enable(priv->clk_ipg);
+	if (err)
 		return err;
+
+	err = clk_prepare_enable(priv->clk_per);
+	if (err)
+		goto out_disable_ipg;
 
 	err = open_candev(dev);
 	if (err)
-		goto out_runtime_put;
+		goto out_disable_per;
 
 	err = request_irq(dev->irq, flexcan_irq, IRQF_SHARED, dev->name, dev);
 	if (err)
@@ -1321,8 +1288,10 @@ static int flexcan_open(struct net_device *dev)
 	free_irq(dev->irq, dev);
  out_close:
 	close_candev(dev);
- out_runtime_put:
-	pm_runtime_put(priv->dev);
+ out_disable_per:
+	clk_disable_unprepare(priv->clk_per);
+ out_disable_ipg:
+	clk_disable_unprepare(priv->clk_ipg);
 
 	return err;
 }
@@ -1337,9 +1306,10 @@ static int flexcan_close(struct net_device *dev)
 
 	can_rx_offload_del(&priv->offload);
 	free_irq(dev->irq, dev);
+	clk_disable_unprepare(priv->clk_per);
+	clk_disable_unprepare(priv->clk_ipg);
 
 	close_candev(dev);
-	pm_runtime_put(priv->dev);
 
 	can_led_event(dev, CAN_LED_EVENT_STOP);
 
@@ -1379,20 +1349,20 @@ static int register_flexcandev(struct net_device *dev)
 	struct flexcan_regs __iomem *regs = priv->regs;
 	u32 reg, err;
 
-	err = flexcan_clks_enable(priv);
+	err = clk_prepare_enable(priv->clk_ipg);
 	if (err)
 		return err;
+
+	err = clk_prepare_enable(priv->clk_per);
+	if (err)
+		goto out_disable_ipg;
 
 	/* select "bus clock", chip must be disabled */
 	err = flexcan_chip_disable(priv);
 	if (err)
-		goto out_clks_disable;
-
+		goto out_disable_per;
 	reg = priv->read(&regs->ctrl);
-	if (priv->clk_src)
-		reg |= FLEXCAN_CTRL_CLK_SRC;
-	else
-		reg &= ~FLEXCAN_CTRL_CLK_SRC;
+	reg |= FLEXCAN_CTRL_CLK_SRC;
 	priv->write(reg, &regs->ctrl);
 
 	err = flexcan_chip_enable(priv);
@@ -1418,21 +1388,15 @@ static int register_flexcandev(struct net_device *dev)
 	}
 
 	err = register_candev(dev);
-	if (err)
-		goto out_chip_disable;
 
-	/* Disable core and let pm_runtime_put() disable the clocks.
-	 * If CONFIG_PM is not enabled, the clocks will stay powered.
-	 */
-	flexcan_chip_disable(priv);
-	pm_runtime_put(priv->dev);
-
-	return 0;
-
+	/* disable core and turn off clocks */
  out_chip_disable:
 	flexcan_chip_disable(priv);
- out_clks_disable:
-	flexcan_clks_disable(priv);
+ out_disable_per:
+	clk_disable_unprepare(priv->clk_per);
+ out_disable_ipg:
+	clk_disable_unprepare(priv->clk_ipg);
+
 	return err;
 }
 
@@ -1473,10 +1437,10 @@ static int flexcan_setup_stop_mode(struct platform_device *pdev)
 
 	priv = netdev_priv(dev);
 	priv->stm.gpr = syscon_node_to_regmap(gpr_np);
+	of_node_put(gpr_np);
 	if (IS_ERR(priv->stm.gpr)) {
 		dev_dbg(&pdev->dev, "could not find gpr regmap\n");
-		ret = PTR_ERR(priv->stm.gpr);
-		goto out_put_node;
+		return PTR_ERR(priv->stm.gpr);
 	}
 
 	priv->stm.req_gpr = out_val[1];
@@ -1491,14 +1455,7 @@ static int flexcan_setup_stop_mode(struct platform_device *pdev)
 
 	device_set_wakeup_capable(&pdev->dev, true);
 
-	if (of_property_read_bool(np, "wakeup-source"))
-		device_set_wakeup_enable(&pdev->dev, true);
-
 	return 0;
-
-out_put_node:
-	of_node_put(gpr_np);
-	return ret;
 }
 
 static const struct of_device_id flexcan_of_match[] = {
@@ -1531,7 +1488,6 @@ static int flexcan_probe(struct platform_device *pdev)
 	struct clk *clk_ipg = NULL, *clk_per = NULL;
 	struct flexcan_regs __iomem *regs;
 	int err, irq;
-	u8 clk_src = 1;
 	u32 clock_freq = 0;
 
 	reg_xceiver = devm_regulator_get(&pdev->dev, "xceiver");
@@ -1540,12 +1496,9 @@ static int flexcan_probe(struct platform_device *pdev)
 	else if (IS_ERR(reg_xceiver))
 		reg_xceiver = NULL;
 
-	if (pdev->dev.of_node) {
+	if (pdev->dev.of_node)
 		of_property_read_u32(pdev->dev.of_node,
 				     "clock-frequency", &clock_freq);
-		of_property_read_u8(pdev->dev.of_node,
-				    "fsl,clk-source", &clk_src);
-	}
 
 	if (!clock_freq) {
 		clk_ipg = devm_clk_get(&pdev->dev, "ipg");
@@ -1603,7 +1556,6 @@ static int flexcan_probe(struct platform_device *pdev)
 		priv->write = flexcan_write_le;
 	}
 
-	priv->dev = &pdev->dev;
 	priv->can.clock.freq = clock_freq;
 	priv->can.bittiming_const = &flexcan_bittiming_const;
 	priv->can.do_set_mode = flexcan_set_mode;
@@ -1614,13 +1566,8 @@ static int flexcan_probe(struct platform_device *pdev)
 	priv->regs = regs;
 	priv->clk_ipg = clk_ipg;
 	priv->clk_per = clk_per;
-	priv->clk_src = clk_src;
 	priv->devtype_data = devtype_data;
 	priv->reg_xceiver = reg_xceiver;
-
-	pm_runtime_get_noresume(&pdev->dev);
-	pm_runtime_set_active(&pdev->dev);
-	pm_runtime_enable(&pdev->dev);
 
 	err = register_flexcandev(dev);
 	if (err) {
@@ -1648,7 +1595,6 @@ static int flexcan_remove(struct platform_device *pdev)
 	struct net_device *dev = platform_get_drvdata(pdev);
 
 	unregister_flexcandev(dev);
-	pm_runtime_disable(&pdev->dev);
 	free_candev(dev);
 
 	return 0;
@@ -1658,7 +1604,7 @@ static int __maybe_unused flexcan_suspend(struct device *device)
 {
 	struct net_device *dev = dev_get_drvdata(device);
 	struct flexcan_priv *priv = netdev_priv(dev);
-	int err = 0;
+	int err;
 
 	if (netif_running(dev)) {
 		/* if wakeup is enabled, enter stop mode
@@ -1666,29 +1612,25 @@ static int __maybe_unused flexcan_suspend(struct device *device)
 		 */
 		if (device_may_wakeup(device)) {
 			enable_irq_wake(dev->irq);
-			err = flexcan_enter_stop_mode(priv);
-			if (err)
-				return err;
+			flexcan_enter_stop_mode(priv);
 		} else {
 			err = flexcan_chip_disable(priv);
 			if (err)
 				return err;
-
-			err = pm_runtime_force_suspend(device);
 		}
 		netif_stop_queue(dev);
 		netif_device_detach(dev);
 	}
 	priv->can.state = CAN_STATE_SLEEPING;
 
-	return err;
+	return 0;
 }
 
 static int __maybe_unused flexcan_resume(struct device *device)
 {
 	struct net_device *dev = dev_get_drvdata(device);
 	struct flexcan_priv *priv = netdev_priv(dev);
-	int err = 0;
+	int err;
 
 	priv->can.state = CAN_STATE_ERROR_ACTIVE;
 	if (netif_running(dev)) {
@@ -1697,33 +1639,12 @@ static int __maybe_unused flexcan_resume(struct device *device)
 		if (device_may_wakeup(device)) {
 			disable_irq_wake(dev->irq);
 		} else {
-			err = pm_runtime_force_resume(device);
+			err = flexcan_chip_enable(priv);
 			if (err)
 				return err;
-
-			err = flexcan_chip_enable(priv);
 		}
 	}
-
-	return err;
-}
-
-static int __maybe_unused flexcan_runtime_suspend(struct device *device)
-{
-	struct net_device *dev = dev_get_drvdata(device);
-	struct flexcan_priv *priv = netdev_priv(dev);
-
-	flexcan_clks_disable(priv);
-
 	return 0;
-}
-
-static int __maybe_unused flexcan_runtime_resume(struct device *device)
-{
-	struct net_device *dev = dev_get_drvdata(device);
-	struct flexcan_priv *priv = netdev_priv(dev);
-
-	return flexcan_clks_enable(priv);
 }
 
 static int __maybe_unused flexcan_noirq_suspend(struct device *device)
@@ -1741,13 +1662,10 @@ static int __maybe_unused flexcan_noirq_resume(struct device *device)
 {
 	struct net_device *dev = dev_get_drvdata(device);
 	struct flexcan_priv *priv = netdev_priv(dev);
-	int err;
 
 	if (netif_running(dev) && device_may_wakeup(device)) {
 		flexcan_enable_wakeup_irq(priv, false);
-		err = flexcan_exit_stop_mode(priv);
-		if (err)
-			return err;
+		flexcan_exit_stop_mode(priv);
 	}
 
 	return 0;
@@ -1755,7 +1673,6 @@ static int __maybe_unused flexcan_noirq_resume(struct device *device)
 
 static const struct dev_pm_ops flexcan_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(flexcan_suspend, flexcan_resume)
-	SET_RUNTIME_PM_OPS(flexcan_runtime_suspend, flexcan_runtime_resume, NULL)
 	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(flexcan_noirq_suspend, flexcan_noirq_resume)
 };
 

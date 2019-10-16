@@ -86,9 +86,9 @@ static bool _e820__mapped_any(struct e820_table *table,
 			continue;
 		if (entry->addr >= end || entry->addr + entry->size <= start)
 			continue;
-		return true;
+		return 1;
 	}
-	return false;
+	return 0;
 }
 
 bool e820__mapped_raw_any(u64 start, u64 end, enum e820_type type)

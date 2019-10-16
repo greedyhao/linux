@@ -406,18 +406,6 @@ static __uint128_t arm64_cpu_to_le128(__uint128_t x)
 
 #define arm64_le128_to_cpu(x) arm64_cpu_to_le128(x)
 
-static void __fpsimd_to_sve(void *sst, struct user_fpsimd_state const *fst,
-			    unsigned int vq)
-{
-	unsigned int i;
-	__uint128_t *p;
-
-	for (i = 0; i < SVE_NUM_ZREGS; ++i) {
-		p = (__uint128_t *)ZREG(sst, vq, i);
-		*p = arm64_cpu_to_le128(fst->vregs[i]);
-	}
-}
-
 /*
  * Transfer the FPSIMD state in task->thread.uw.fpsimd_state to
  * task->thread.sve_state.
@@ -435,12 +423,17 @@ static void fpsimd_to_sve(struct task_struct *task)
 	unsigned int vq;
 	void *sst = task->thread.sve_state;
 	struct user_fpsimd_state const *fst = &task->thread.uw.fpsimd_state;
+	unsigned int i;
+	__uint128_t *p;
 
 	if (!system_supports_sve())
 		return;
 
 	vq = sve_vq_from_vl(task->thread.sve_vl);
-	__fpsimd_to_sve(sst, fst, vq);
+	for (i = 0; i < 32; ++i) {
+		p = (__uint128_t *)ZREG(sst, vq, i);
+		*p = arm64_cpu_to_le128(fst->vregs[i]);
+	}
 }
 
 /*
@@ -466,7 +459,7 @@ static void sve_to_fpsimd(struct task_struct *task)
 		return;
 
 	vq = sve_vq_from_vl(task->thread.sve_vl);
-	for (i = 0; i < SVE_NUM_ZREGS; ++i) {
+	for (i = 0; i < 32; ++i) {
 		p = (__uint128_t const *)ZREG(sst, vq, i);
 		fst->vregs[i] = arm64_le128_to_cpu(*p);
 	}
@@ -557,6 +550,8 @@ void sve_sync_from_fpsimd_zeropad(struct task_struct *task)
 	unsigned int vq;
 	void *sst = task->thread.sve_state;
 	struct user_fpsimd_state const *fst = &task->thread.uw.fpsimd_state;
+	unsigned int i;
+	__uint128_t *p;
 
 	if (!test_tsk_thread_flag(task, TIF_SVE))
 		return;
@@ -564,7 +559,11 @@ void sve_sync_from_fpsimd_zeropad(struct task_struct *task)
 	vq = sve_vq_from_vl(task->thread.sve_vl);
 
 	memset(sst, 0, SVE_SIG_REGS_SIZE(vq));
-	__fpsimd_to_sve(sst, fst, vq);
+
+	for (i = 0; i < 32; ++i) {
+		p = (__uint128_t *)ZREG(sst, vq, i);
+		*p = arm64_cpu_to_le128(fst->vregs[i]);
+	}
 }
 
 int sve_set_vector_length(struct task_struct *task,

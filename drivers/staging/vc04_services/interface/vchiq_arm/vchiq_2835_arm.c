@@ -141,8 +141,10 @@ int vchiq_platform_init(struct platform_device *pdev, struct vchiq_state *state)
 		return PTR_ERR(g_regs);
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq <= 0)
+	if (irq <= 0) {
+		dev_err(dev, "failed to get IRQ\n");
 		return irq;
+	}
 
 	err = devm_request_irq(dev, irq, vchiq_doorbell_irq, IRQF_IRQPOLL,
 			       "VCHIQ doorbell", state);

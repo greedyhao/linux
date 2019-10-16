@@ -107,50 +107,6 @@ static int mlx5_cmd_stub_delete_fte(struct mlx5_flow_root_namespace *ns,
 	return 0;
 }
 
-static int mlx5_cmd_stub_packet_reformat_alloc(struct mlx5_flow_root_namespace *ns,
-					       int reformat_type,
-					       size_t size,
-					       void *reformat_data,
-					       enum mlx5_flow_namespace_type namespace,
-					       struct mlx5_pkt_reformat *pkt_reformat)
-{
-	return 0;
-}
-
-static void mlx5_cmd_stub_packet_reformat_dealloc(struct mlx5_flow_root_namespace *ns,
-						  struct mlx5_pkt_reformat *pkt_reformat)
-{
-}
-
-static int mlx5_cmd_stub_modify_header_alloc(struct mlx5_flow_root_namespace *ns,
-					     u8 namespace, u8 num_actions,
-					     void *modify_actions,
-					     struct mlx5_modify_hdr *modify_hdr)
-{
-	return 0;
-}
-
-static void mlx5_cmd_stub_modify_header_dealloc(struct mlx5_flow_root_namespace *ns,
-						struct mlx5_modify_hdr *modify_hdr)
-{
-}
-
-static int mlx5_cmd_stub_set_peer(struct mlx5_flow_root_namespace *ns,
-				  struct mlx5_flow_root_namespace *peer_ns)
-{
-	return 0;
-}
-
-static int mlx5_cmd_stub_create_ns(struct mlx5_flow_root_namespace *ns)
-{
-	return 0;
-}
-
-static int mlx5_cmd_stub_destroy_ns(struct mlx5_flow_root_namespace *ns)
-{
-	return 0;
-}
-
 static int mlx5_cmd_update_root_ft(struct mlx5_flow_root_namespace *ns,
 				   struct mlx5_flow_table *ft, u32 underlay_qpn,
 				   bool disconnect)
@@ -226,7 +182,7 @@ static int mlx5_cmd_create_flow_table(struct mlx5_flow_root_namespace *ns,
 		} else {
 			MLX5_SET(create_flow_table_in, in,
 				 flow_table_context.table_miss_action,
-				 ft->def_miss_action);
+				 ns->def_miss_action);
 		}
 		break;
 
@@ -306,7 +262,7 @@ static int mlx5_cmd_modify_flow_table(struct mlx5_flow_root_namespace *ns,
 		} else {
 			MLX5_SET(modify_flow_table_in, in,
 				 flow_table_context.table_miss_action,
-				 ft->def_miss_action);
+				 ns->def_miss_action);
 		}
 	}
 
@@ -456,13 +412,11 @@ static int mlx5_cmd_set_fte(struct mlx5_core_dev *dev,
 	} else {
 		MLX5_SET(flow_context, in_flow_context, action,
 			 fte->action.action);
-		if (fte->action.pkt_reformat)
-			MLX5_SET(flow_context, in_flow_context, packet_reformat_id,
-				 fte->action.pkt_reformat->id);
+		MLX5_SET(flow_context, in_flow_context, packet_reformat_id,
+			 fte->action.reformat_id);
 	}
-	if (fte->action.modify_hdr)
-		MLX5_SET(flow_context, in_flow_context, modify_header_id,
-			 fte->action.modify_hdr->id);
+	MLX5_SET(flow_context, in_flow_context, modify_header_id,
+		 fte->action.modify_id);
 
 	vlan = MLX5_ADDR_OF(flow_context, in_flow_context, push_vlan);
 
@@ -514,7 +468,7 @@ static int mlx5_cmd_set_fte(struct mlx5_core_dev *dev,
 						    MLX5_FLOW_DEST_VPORT_REFORMAT_ID));
 					MLX5_SET(extended_dest_format, in_dests,
 						 packet_reformat_id,
-						 dst->dest_attr.vport.pkt_reformat->id);
+						 dst->dest_attr.vport.reformat_id);
 				}
 				break;
 			default:
@@ -612,9 +566,7 @@ static int mlx5_cmd_delete_fte(struct mlx5_flow_root_namespace *ns,
 	return mlx5_cmd_exec(dev, in, sizeof(in), out, sizeof(out));
 }
 
-int mlx5_cmd_fc_bulk_alloc(struct mlx5_core_dev *dev,
-			   enum mlx5_fc_bulk_alloc_bitmask alloc_bitmask,
-			   u32 *id)
+int mlx5_cmd_fc_alloc(struct mlx5_core_dev *dev, u32 *id)
 {
 	u32 in[MLX5_ST_SZ_DW(alloc_flow_counter_in)]   = {0};
 	u32 out[MLX5_ST_SZ_DW(alloc_flow_counter_out)] = {0};
@@ -622,17 +574,11 @@ int mlx5_cmd_fc_bulk_alloc(struct mlx5_core_dev *dev,
 
 	MLX5_SET(alloc_flow_counter_in, in, opcode,
 		 MLX5_CMD_OP_ALLOC_FLOW_COUNTER);
-	MLX5_SET(alloc_flow_counter_in, in, flow_counter_bulk, alloc_bitmask);
 
 	err = mlx5_cmd_exec(dev, in, sizeof(in), out, sizeof(out));
 	if (!err)
 		*id = MLX5_GET(alloc_flow_counter_out, out, flow_counter_id);
 	return err;
-}
-
-int mlx5_cmd_fc_alloc(struct mlx5_core_dev *dev, u32 *id)
-{
-	return mlx5_cmd_fc_bulk_alloc(dev, 0, id);
 }
 
 int mlx5_cmd_fc_free(struct mlx5_core_dev *dev, u32 id)
@@ -669,35 +615,77 @@ int mlx5_cmd_fc_query(struct mlx5_core_dev *dev, u32 id,
 	return 0;
 }
 
-int mlx5_cmd_fc_get_bulk_query_out_len(int bulk_len)
+struct mlx5_cmd_fc_bulk {
+	u32 id;
+	int num;
+	int outlen;
+	u32 out[0];
+};
+
+struct mlx5_cmd_fc_bulk *
+mlx5_cmd_fc_bulk_alloc(struct mlx5_core_dev *dev, u32 id, int num)
 {
-	return MLX5_ST_SZ_BYTES(query_flow_counter_out) +
-		MLX5_ST_SZ_BYTES(traffic_counter) * bulk_len;
+	struct mlx5_cmd_fc_bulk *b;
+	int outlen =
+		MLX5_ST_SZ_BYTES(query_flow_counter_out) +
+		MLX5_ST_SZ_BYTES(traffic_counter) * num;
+
+	b = kzalloc(sizeof(*b) + outlen, GFP_KERNEL);
+	if (!b)
+		return NULL;
+
+	b->id = id;
+	b->num = num;
+	b->outlen = outlen;
+
+	return b;
 }
 
-int mlx5_cmd_fc_bulk_query(struct mlx5_core_dev *dev, u32 base_id, int bulk_len,
-			   u32 *out)
+void mlx5_cmd_fc_bulk_free(struct mlx5_cmd_fc_bulk *b)
 {
-	int outlen = mlx5_cmd_fc_get_bulk_query_out_len(bulk_len);
+	kfree(b);
+}
+
+int
+mlx5_cmd_fc_bulk_query(struct mlx5_core_dev *dev, struct mlx5_cmd_fc_bulk *b)
+{
 	u32 in[MLX5_ST_SZ_DW(query_flow_counter_in)] = {0};
 
 	MLX5_SET(query_flow_counter_in, in, opcode,
 		 MLX5_CMD_OP_QUERY_FLOW_COUNTER);
 	MLX5_SET(query_flow_counter_in, in, op_mod, 0);
-	MLX5_SET(query_flow_counter_in, in, flow_counter_id, base_id);
-	MLX5_SET(query_flow_counter_in, in, num_of_counters, bulk_len);
-	return mlx5_cmd_exec(dev, in, sizeof(in), out, outlen);
+	MLX5_SET(query_flow_counter_in, in, flow_counter_id, b->id);
+	MLX5_SET(query_flow_counter_in, in, num_of_counters, b->num);
+	return mlx5_cmd_exec(dev, in, sizeof(in), b->out, b->outlen);
 }
 
-static int mlx5_cmd_packet_reformat_alloc(struct mlx5_flow_root_namespace *ns,
-					  int reformat_type,
-					  size_t size,
-					  void *reformat_data,
-					  enum mlx5_flow_namespace_type namespace,
-					  struct mlx5_pkt_reformat *pkt_reformat)
+void mlx5_cmd_fc_bulk_get(struct mlx5_core_dev *dev,
+			  struct mlx5_cmd_fc_bulk *b, u32 id,
+			  u64 *packets, u64 *bytes)
+{
+	int index = id - b->id;
+	void *stats;
+
+	if (index < 0 || index >= b->num) {
+		mlx5_core_warn(dev, "Flow counter id (0x%x) out of range (0x%x..0x%x). Counter ignored.\n",
+			       id, b->id, b->id + b->num - 1);
+		return;
+	}
+
+	stats = MLX5_ADDR_OF(query_flow_counter_out, b->out,
+			     flow_statistics[index]);
+	*packets = MLX5_GET64(traffic_counter, stats, packets);
+	*bytes = MLX5_GET64(traffic_counter, stats, octets);
+}
+
+int mlx5_packet_reformat_alloc(struct mlx5_core_dev *dev,
+			       int reformat_type,
+			       size_t size,
+			       void *reformat_data,
+			       enum mlx5_flow_namespace_type namespace,
+			       u32 *packet_reformat_id)
 {
 	u32 out[MLX5_ST_SZ_DW(alloc_packet_reformat_context_out)];
-	struct mlx5_core_dev *dev = ns->dev;
 	void *packet_reformat_context_in;
 	int max_encap_size;
 	void *reformat;
@@ -740,36 +728,35 @@ static int mlx5_cmd_packet_reformat_alloc(struct mlx5_flow_root_namespace *ns,
 	memset(out, 0, sizeof(out));
 	err = mlx5_cmd_exec(dev, in, inlen, out, sizeof(out));
 
-	pkt_reformat->id = MLX5_GET(alloc_packet_reformat_context_out,
-				    out, packet_reformat_id);
+	*packet_reformat_id = MLX5_GET(alloc_packet_reformat_context_out,
+				       out, packet_reformat_id);
 	kfree(in);
 	return err;
 }
+EXPORT_SYMBOL(mlx5_packet_reformat_alloc);
 
-static void mlx5_cmd_packet_reformat_dealloc(struct mlx5_flow_root_namespace *ns,
-					     struct mlx5_pkt_reformat *pkt_reformat)
+void mlx5_packet_reformat_dealloc(struct mlx5_core_dev *dev,
+				  u32 packet_reformat_id)
 {
 	u32 in[MLX5_ST_SZ_DW(dealloc_packet_reformat_context_in)];
 	u32 out[MLX5_ST_SZ_DW(dealloc_packet_reformat_context_out)];
-	struct mlx5_core_dev *dev = ns->dev;
 
 	memset(in, 0, sizeof(in));
 	MLX5_SET(dealloc_packet_reformat_context_in, in, opcode,
 		 MLX5_CMD_OP_DEALLOC_PACKET_REFORMAT_CONTEXT);
 	MLX5_SET(dealloc_packet_reformat_context_in, in, packet_reformat_id,
-		 pkt_reformat->id);
+		 packet_reformat_id);
 
 	mlx5_cmd_exec(dev, in, sizeof(in), out, sizeof(out));
 }
+EXPORT_SYMBOL(mlx5_packet_reformat_dealloc);
 
-static int mlx5_cmd_modify_header_alloc(struct mlx5_flow_root_namespace *ns,
-					u8 namespace, u8 num_actions,
-					void *modify_actions,
-					struct mlx5_modify_hdr *modify_hdr)
+int mlx5_modify_header_alloc(struct mlx5_core_dev *dev,
+			     u8 namespace, u8 num_actions,
+			     void *modify_actions, u32 *modify_header_id)
 {
 	u32 out[MLX5_ST_SZ_DW(alloc_modify_header_context_out)];
 	int max_actions, actions_size, inlen, err;
-	struct mlx5_core_dev *dev = ns->dev;
 	void *actions_in;
 	u8 table_type;
 	u32 *in;
@@ -820,26 +807,26 @@ static int mlx5_cmd_modify_header_alloc(struct mlx5_flow_root_namespace *ns,
 	memset(out, 0, sizeof(out));
 	err = mlx5_cmd_exec(dev, in, inlen, out, sizeof(out));
 
-	modify_hdr->id = MLX5_GET(alloc_modify_header_context_out, out, modify_header_id);
+	*modify_header_id = MLX5_GET(alloc_modify_header_context_out, out, modify_header_id);
 	kfree(in);
 	return err;
 }
+EXPORT_SYMBOL(mlx5_modify_header_alloc);
 
-static void mlx5_cmd_modify_header_dealloc(struct mlx5_flow_root_namespace *ns,
-					   struct mlx5_modify_hdr *modify_hdr)
+void mlx5_modify_header_dealloc(struct mlx5_core_dev *dev, u32 modify_header_id)
 {
 	u32 in[MLX5_ST_SZ_DW(dealloc_modify_header_context_in)];
 	u32 out[MLX5_ST_SZ_DW(dealloc_modify_header_context_out)];
-	struct mlx5_core_dev *dev = ns->dev;
 
 	memset(in, 0, sizeof(in));
 	MLX5_SET(dealloc_modify_header_context_in, in, opcode,
 		 MLX5_CMD_OP_DEALLOC_MODIFY_HEADER_CONTEXT);
 	MLX5_SET(dealloc_modify_header_context_in, in, modify_header_id,
-		 modify_hdr->id);
+		 modify_header_id);
 
 	mlx5_cmd_exec(dev, in, sizeof(in), out, sizeof(out));
 }
+EXPORT_SYMBOL(mlx5_modify_header_dealloc);
 
 static const struct mlx5_flow_cmds mlx5_flow_cmds = {
 	.create_flow_table = mlx5_cmd_create_flow_table,
@@ -851,13 +838,6 @@ static const struct mlx5_flow_cmds mlx5_flow_cmds = {
 	.update_fte = mlx5_cmd_update_fte,
 	.delete_fte = mlx5_cmd_delete_fte,
 	.update_root_ft = mlx5_cmd_update_root_ft,
-	.packet_reformat_alloc = mlx5_cmd_packet_reformat_alloc,
-	.packet_reformat_dealloc = mlx5_cmd_packet_reformat_dealloc,
-	.modify_header_alloc = mlx5_cmd_modify_header_alloc,
-	.modify_header_dealloc = mlx5_cmd_modify_header_dealloc,
-	.set_peer = mlx5_cmd_stub_set_peer,
-	.create_ns = mlx5_cmd_stub_create_ns,
-	.destroy_ns = mlx5_cmd_stub_destroy_ns,
 };
 
 static const struct mlx5_flow_cmds mlx5_flow_cmd_stubs = {
@@ -870,16 +850,9 @@ static const struct mlx5_flow_cmds mlx5_flow_cmd_stubs = {
 	.update_fte = mlx5_cmd_stub_update_fte,
 	.delete_fte = mlx5_cmd_stub_delete_fte,
 	.update_root_ft = mlx5_cmd_stub_update_root_ft,
-	.packet_reformat_alloc = mlx5_cmd_stub_packet_reformat_alloc,
-	.packet_reformat_dealloc = mlx5_cmd_stub_packet_reformat_dealloc,
-	.modify_header_alloc = mlx5_cmd_stub_modify_header_alloc,
-	.modify_header_dealloc = mlx5_cmd_stub_modify_header_dealloc,
-	.set_peer = mlx5_cmd_stub_set_peer,
-	.create_ns = mlx5_cmd_stub_create_ns,
-	.destroy_ns = mlx5_cmd_stub_destroy_ns,
 };
 
-const struct mlx5_flow_cmds *mlx5_fs_cmd_get_fw_cmds(void)
+static const struct mlx5_flow_cmds *mlx5_fs_cmd_get_fw_cmds(void)
 {
 	return &mlx5_flow_cmds;
 }

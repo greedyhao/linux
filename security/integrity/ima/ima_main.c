@@ -202,7 +202,6 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	int rc = 0, action, must_appraise = 0;
 	int pcr = CONFIG_IMA_MEASURE_PCR_IDX;
 	struct evm_ima_xattr_data *xattr_value = NULL;
-	struct modsig *modsig = NULL;
 	int xattr_len = 0;
 	bool violation_check;
 	enum hash_algo hash_algo;
@@ -303,27 +302,13 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	}
 
 	if ((action & IMA_APPRAISE_SUBMASK) ||
-	    strcmp(template_desc->name, IMA_TEMPLATE_IMA_NAME) != 0) {
+		    strcmp(template_desc->name, IMA_TEMPLATE_IMA_NAME) != 0)
 		/* read 'security.ima' */
 		xattr_len = ima_read_xattr(file_dentry(file), &xattr_value);
 
-		/*
-		 * Read the appended modsig if allowed by the policy, and allow
-		 * an additional measurement list entry, if needed, based on the
-		 * template format and whether the file was already measured.
-		 */
-		if (iint->flags & IMA_MODSIG_ALLOWED) {
-			rc = ima_read_modsig(func, buf, size, &modsig);
-
-			if (!rc && ima_template_has_modsig(template_desc) &&
-			    iint->flags & IMA_MEASURED)
-				action |= IMA_MEASURE;
-		}
-	}
-
 	hash_algo = ima_get_hash_algo(xattr_value, xattr_len);
 
-	rc = ima_collect_measurement(iint, file, buf, size, hash_algo, modsig);
+	rc = ima_collect_measurement(iint, file, buf, size, hash_algo);
 	if (rc != 0 && rc != -EBADF && rc != -EINVAL)
 		goto out_locked;
 
@@ -332,12 +317,12 @@ static int process_measurement(struct file *file, const struct cred *cred,
 
 	if (action & IMA_MEASURE)
 		ima_store_measurement(iint, file, pathname,
-				      xattr_value, xattr_len, modsig, pcr,
+				      xattr_value, xattr_len, pcr,
 				      template_desc);
 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
 		inode_lock(inode);
 		rc = ima_appraise_measurement(func, iint, file, pathname,
-					      xattr_value, xattr_len, modsig);
+					      xattr_value, xattr_len);
 		inode_unlock(inode);
 		if (!rc)
 			rc = mmap_violation_check(func, file, &pathbuf,
@@ -354,7 +339,6 @@ out_locked:
 		rc = -EACCES;
 	mutex_unlock(&iint->mutex);
 	kfree(xattr_value);
-	ima_free_modsig(modsig);
 out:
 	if (pathbuf)
 		__putname(pathbuf);
@@ -518,7 +502,7 @@ int ima_read_file(struct file *file, enum kernel_read_file_id read_id)
 	return 0;
 }
 
-const int read_idmap[READING_MAX_ID] = {
+static const int read_idmap[READING_MAX_ID] = {
 	[READING_FIRMWARE] = FIRMWARE_CHECK,
 	[READING_FIRMWARE_PREALLOC_BUFFER] = FIRMWARE_CHECK,
 	[READING_MODULE] = MODULE_CHECK,
@@ -590,7 +574,7 @@ int ima_load_data(enum kernel_load_data_id id)
 
 	switch (id) {
 	case LOADING_KEXEC_IMAGE:
-		if (IS_ENABLED(CONFIG_KEXEC_SIG)
+		if (IS_ENABLED(CONFIG_KEXEC_VERIFY_SIG)
 		    && arch_ima_get_secureboot()) {
 			pr_err("impossible to appraise a kernel image without a file descriptor; try using kexec_file_load syscall.\n");
 			return -EACCES;

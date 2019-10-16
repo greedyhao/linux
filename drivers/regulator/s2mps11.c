@@ -1226,7 +1226,7 @@ common_reg:
 			goto out;
 		}
 
-		if (config.ena_gpiod) {
+		if (s2mps11->ext_control_gpiod[i]) {
 			ret = s2mps14_pmic_enable_ext_control(s2mps11,
 					regulator);
 			if (ret < 0) {

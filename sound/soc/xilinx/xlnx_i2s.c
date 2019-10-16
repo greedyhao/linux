@@ -95,6 +95,7 @@ MODULE_DEVICE_TABLE(of, xlnx_i2s_of_match);
 
 static int xlnx_i2s_probe(struct platform_device *pdev)
 {
+	struct resource *res;
 	void __iomem *base;
 	struct snd_soc_dai_driver *dai_drv;
 	int ret;
@@ -106,7 +107,8 @@ static int xlnx_i2s_probe(struct platform_device *pdev)
 	if (!dai_drv)
 		return -ENOMEM;
 
-	base = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 

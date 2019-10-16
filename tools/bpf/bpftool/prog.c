@@ -363,9 +363,7 @@ static int do_show(int argc, char **argv)
 		if (fd < 0)
 			return -1;
 
-		err = show_prog(fd);
-		close(fd);
-		return err;
+		return show_prog(fd);
 	}
 
 	if (argc)

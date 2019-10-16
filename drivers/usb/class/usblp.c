@@ -461,12 +461,10 @@ static int usblp_release(struct inode *inode, struct file *file)
 
 	mutex_lock(&usblp_mutex);
 	usblp->used = 0;
-	if (usblp->present)
+	if (usblp->present) {
 		usblp_unlink_urbs(usblp);
-
-	usb_autopm_put_interface(usblp->intf);
-
-	if (!usblp->present)		/* finish cleanup from disconnect */
+		usb_autopm_put_interface(usblp->intf);
+	} else		/* finish cleanup from disconnect */
 		usblp_cleanup(usblp);
 	mutex_unlock(&usblp_mutex);
 	return 0;
@@ -1084,12 +1082,6 @@ static ssize_t ieee1284_id_show(struct device *dev, struct device_attribute *att
 
 static DEVICE_ATTR_RO(ieee1284_id);
 
-static struct attribute *usblp_attrs[] = {
-	&dev_attr_ieee1284_id.attr,
-	NULL,
-};
-ATTRIBUTE_GROUPS(usblp);
-
 static int usblp_probe(struct usb_interface *intf,
 		       const struct usb_device_id *id)
 {
@@ -1164,6 +1156,9 @@ static int usblp_probe(struct usb_interface *intf,
 
 	/* Retrieve and store the device ID string. */
 	usblp_cache_device_id_string(usblp);
+	retval = device_create_file(&intf->dev, &dev_attr_ieee1284_id);
+	if (retval)
+		goto abort_intfdata;
 
 #ifdef DEBUG
 	usblp_check_status(usblp, 0);
@@ -1194,6 +1189,7 @@ static int usblp_probe(struct usb_interface *intf,
 
 abort_intfdata:
 	usb_set_intfdata(intf, NULL);
+	device_remove_file(&intf->dev, &dev_attr_ieee1284_id);
 abort:
 	kfree(usblp->readbuf);
 	kfree(usblp->statusbuf);
@@ -1364,6 +1360,8 @@ static void usblp_disconnect(struct usb_interface *intf)
 		BUG();
 	}
 
+	device_remove_file(&intf->dev, &dev_attr_ieee1284_id);
+
 	mutex_lock(&usblp_mutex);
 	mutex_lock(&usblp->mut);
 	usblp->present = 0;
@@ -1423,7 +1421,6 @@ static struct usb_driver usblp_driver = {
 	.suspend =	usblp_suspend,
 	.resume =	usblp_resume,
 	.id_table =	usblp_ids,
-	.dev_groups =	usblp_groups,
 	.supports_autosuspend =	1,
 };
 

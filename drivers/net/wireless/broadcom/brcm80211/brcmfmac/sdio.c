@@ -4247,26 +4247,17 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 	sdiod->bus_if->chip = bus->ci->chip;
 	sdiod->bus_if->chiprev = bus->ci->chiprev;
 
-	err = brcmf_alloc(sdiod->dev, sdiod->settings);
-	if (err) {
-		brcmf_err("brcmf_alloc failed\n");
-		goto claim;
-	}
-
 	/* Attach to the common layer, reserve hdr space */
-	err = brcmf_attach(sdiod->dev);
+	err = brcmf_attach(sdiod->dev, sdiod->settings);
 	if (err != 0) {
 		brcmf_err("brcmf_attach failed\n");
-		goto free;
+		sdio_claim_host(sdiod->func1);
+		goto checkdied;
 	}
 
 	/* ready */
 	return;
 
-free:
-	brcmf_free(sdiod->dev);
-claim:
-	sdio_claim_host(sdiod->func1);
 checkdied:
 	brcmf_sdio_checkdied(bus);
 release:

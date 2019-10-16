@@ -182,8 +182,7 @@ __secondary_hold:
 	isync
 	bctr
 #else
-0:	trap
-	EMIT_BUG_ENTRY 0b, __FILE__, __LINE__, 0
+	BUG_OPCODE
 #endif
 CLOSE_FIXED_SECTION(first_256B)
 
@@ -636,7 +635,7 @@ __after_prom_start:
 	sub	r5,r5,r11
 #else
 	/* just copy interrupts */
-	LOAD_REG_IMMEDIATE_SYM(r5, r11, FIXED_SYMBOL_ABS_ADDR(__end_interrupts))
+	LOAD_REG_IMMEDIATE(r5, FIXED_SYMBOL_ABS_ADDR(__end_interrupts))
 #endif
 	b	5f
 3:
@@ -999,8 +998,7 @@ start_here_common:
 	bl	start_kernel
 
 	/* Not reached */
-	trap
-	EMIT_BUG_ENTRY 0b, __FILE__, __LINE__, 0
+	BUG_OPCODE
 
 /*
  * We put a few things here that have to be page-aligned.

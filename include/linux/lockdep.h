@@ -5,7 +5,7 @@
  *  Copyright (C) 2006,2007 Red Hat, Inc., Ingo Molnar <mingo@redhat.com>
  *  Copyright (C) 2007 Red Hat, Inc., Peter Zijlstra
  *
- * see Documentation/locking/lockdep-design.rst for more details.
+ * see Documentation/locking/lockdep-design.txt for more details.
  */
 #ifndef __LINUX_LOCKDEP_H
 #define __LINUX_LOCKDEP_H
@@ -66,7 +66,10 @@ struct lock_class_key {
 
 extern struct lock_class_key __lockdep_no_validate__;
 
-struct lock_trace;
+struct lock_trace {
+	unsigned int		nr_entries;
+	unsigned int		offset;
+};
 
 #define LOCKSTAT_POINTS		4
 
@@ -94,7 +97,7 @@ struct lock_class {
 	 */
 	struct list_head		locks_after, locks_before;
 
-	const struct lockdep_subclass_key *key;
+	struct lockdep_subclass_key	*key;
 	unsigned int			subclass;
 	unsigned int			dep_gen_id;
 
@@ -102,7 +105,7 @@ struct lock_class {
 	 * IRQ/softirq usage tracking bits:
 	 */
 	unsigned long			usage_mask;
-	const struct lock_trace		*usage_traces[XXX_LOCK_USAGE_STATES];
+	struct lock_trace		usage_traces[XXX_LOCK_USAGE_STATES];
 
 	/*
 	 * Generation counter, when doing certain classes of graph walking,
@@ -190,7 +193,7 @@ struct lock_list {
 	struct list_head		entry;
 	struct lock_class		*class;
 	struct lock_class		*links_to;
-	const struct lock_trace		*trace;
+	struct lock_trace		trace;
 	int				distance;
 
 	/*

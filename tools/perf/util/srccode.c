@@ -15,7 +15,7 @@
 #include <string.h>
 #include "srccode.h"
 #include "debug.h"
-#include <internal/lib.h> // page_size
+#include "util.h"
 
 #define MAXSRCCACHE (32*1024*1024)
 #define MAXSRCFILES     64

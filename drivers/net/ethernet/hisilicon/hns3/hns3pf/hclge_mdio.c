@@ -231,8 +231,6 @@ int hclge_mac_connect_phy(struct hnae3_handle *handle)
 	linkmode_clear_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
 			   phydev->advertising);
 
-	phy_attached_info(phydev);
-
 	return 0;
 }
 

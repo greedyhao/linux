@@ -81,11 +81,10 @@ $(OUTPUT)bpf_exp.lex.o: $(OUTPUT)bpf_exp.lex.c
 
 clean: bpftool_clean
 	$(call QUIET_CLEAN, bpf-progs)
-	$(Q)$(RM) -r -- $(OUTPUT)*.o $(OUTPUT)bpf_jit_disasm $(OUTPUT)bpf_dbg \
+	$(Q)rm -rf $(OUTPUT)*.o $(OUTPUT)bpf_jit_disasm $(OUTPUT)bpf_dbg \
 	       $(OUTPUT)bpf_asm $(OUTPUT)bpf_exp.yacc.* $(OUTPUT)bpf_exp.lex.*
 	$(call QUIET_CLEAN, core-gen)
-	$(Q)$(RM) -- $(OUTPUT)FEATURE-DUMP.bpf
-	$(Q)$(RM) -r -- $(OUTPUT)feature
+	$(Q)rm -f $(OUTPUT)FEATURE-DUMP.bpf
 
 install: $(PROGS) bpftool_install
 	$(call QUIET_INSTALL, bpf_jit_disasm)

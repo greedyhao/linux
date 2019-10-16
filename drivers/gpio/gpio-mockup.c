@@ -309,7 +309,6 @@ static const struct file_operations gpio_mockup_debugfs_ops = {
 	.read = gpio_mockup_debugfs_read,
 	.write = gpio_mockup_debugfs_write,
 	.llseek = no_llseek,
-	.release = single_release,
 };
 
 static void gpio_mockup_debugfs_setup(struct device *dev,

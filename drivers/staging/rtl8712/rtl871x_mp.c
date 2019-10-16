@@ -35,7 +35,7 @@ static void _init_mp_priv_(struct mp_priv *pmp_priv)
 
 static int init_mp_priv(struct mp_priv *pmp_priv)
 {
-	int i;
+	int i, res;
 	struct mp_xmit_frame *pmp_xmitframe;
 
 	_init_mp_priv_(pmp_priv);
@@ -45,7 +45,8 @@ static int init_mp_priv(struct mp_priv *pmp_priv)
 				sizeof(struct mp_xmit_frame) + 4,
 				GFP_ATOMIC);
 	if (!pmp_priv->pallocated_mp_xmitframe_buf) {
-		return -ENOMEM;
+		res = _FAIL;
+		goto _exit_init_mp_priv;
 	}
 	pmp_priv->pmp_xmtframe_buf = pmp_priv->pallocated_mp_xmitframe_buf +
 			 4 -
@@ -61,7 +62,9 @@ static int init_mp_priv(struct mp_priv *pmp_priv)
 		pmp_xmitframe++;
 	}
 	pmp_priv->free_mp_xmitframe_cnt = NR_MP_XMITFRAME;
-	return 0;
+	res = _SUCCESS;
+_exit_init_mp_priv:
+	return res;
 }
 
 static int free_mp_priv(struct mp_priv *pmp_priv)

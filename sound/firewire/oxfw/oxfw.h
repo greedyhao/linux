@@ -63,8 +63,6 @@ struct snd_oxfw {
 
 	const struct ieee1394_device_id *entry;
 	void *spec;
-
-	struct amdtp_domain domain;
 };
 
 /*

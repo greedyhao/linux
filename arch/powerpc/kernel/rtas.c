@@ -16,7 +16,6 @@
 #include <linux/capability.h>
 #include <linux/delay.h>
 #include <linux/cpu.h>
-#include <linux/sched.h>
 #include <linux/smp.h>
 #include <linux/completion.h>
 #include <linux/cpumask.h>
@@ -872,17 +871,15 @@ static int rtas_cpu_state_change_mask(enum rtas_cpu_state state,
 		return 0;
 
 	for_each_cpu(cpu, cpus) {
-		struct device *dev = get_cpu_device(cpu);
-
 		switch (state) {
 		case DOWN:
-			cpuret = device_offline(dev);
+			cpuret = cpu_down(cpu);
 			break;
 		case UP:
-			cpuret = device_online(dev);
+			cpuret = cpu_up(cpu);
 			break;
 		}
-		if (cpuret < 0) {
+		if (cpuret) {
 			pr_debug("%s: cpu_%s for cpu#%d returned %d.\n",
 					__func__,
 					((state == UP) ? "up" : "down"),
@@ -899,7 +896,6 @@ static int rtas_cpu_state_change_mask(enum rtas_cpu_state state,
 				cpumask_clear_cpu(cpu, cpus);
 			}
 		}
-		cond_resched();
 	}
 
 	return ret;
@@ -926,11 +922,13 @@ int rtas_online_cpus_mask(cpumask_var_t cpus)
 
 	return ret;
 }
+EXPORT_SYMBOL(rtas_online_cpus_mask);
 
 int rtas_offline_cpus_mask(cpumask_var_t cpus)
 {
 	return rtas_cpu_state_change_mask(DOWN, cpus);
 }
+EXPORT_SYMBOL(rtas_offline_cpus_mask);
 
 int rtas_ibm_suspend_me(u64 handle)
 {
@@ -970,8 +968,6 @@ int rtas_ibm_suspend_me(u64 handle)
 	data.token = rtas_token("ibm,suspend-me");
 	data.complete = &done;
 
-	lock_device_hotplug();
-
 	/* All present CPUs must be online */
 	cpumask_andnot(offline_mask, cpu_present_mask, cpu_online_mask);
 	cpuret = rtas_online_cpus_mask(offline_mask);
@@ -1010,7 +1006,6 @@ out_hotplug_enable:
 				__func__);
 
 out:
-	unlock_device_hotplug();
 	free_cpumask_var(offline_mask);
 	return atomic_read(&data.error);
 }

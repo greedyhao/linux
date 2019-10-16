@@ -412,27 +412,41 @@ static void fl_hw_destroy_filter(struct tcf_proto *tp, struct cls_fl_filter *f,
 	struct tcf_block *block = tp->chain->block;
 	struct flow_cls_offload cls_flower = {};
 
+	if (!rtnl_held)
+		rtnl_lock();
+
 	tc_cls_common_offload_init(&cls_flower.common, tp, f->flags, extack);
 	cls_flower.command = FLOW_CLS_DESTROY;
 	cls_flower.cookie = (unsigned long) f;
 
-	tc_setup_cb_destroy(block, tp, TC_SETUP_CLSFLOWER, &cls_flower, false,
-			    &f->flags, &f->in_hw_count, rtnl_held);
+	tc_setup_cb_call(block, TC_SETUP_CLSFLOWER, &cls_flower, false);
+	spin_lock(&tp->lock);
+	list_del_init(&f->hw_list);
+	tcf_block_offload_dec(block, &f->flags);
+	spin_unlock(&tp->lock);
 
+	if (!rtnl_held)
+		rtnl_unlock();
 }
 
 static int fl_hw_replace_filter(struct tcf_proto *tp,
 				struct cls_fl_filter *f, bool rtnl_held,
 				struct netlink_ext_ack *extack)
 {
+	struct cls_fl_head *head = fl_head_dereference(tp);
 	struct tcf_block *block = tp->chain->block;
 	struct flow_cls_offload cls_flower = {};
 	bool skip_sw = tc_skip_sw(f->flags);
 	int err = 0;
 
+	if (!rtnl_held)
+		rtnl_lock();
+
 	cls_flower.rule = flow_rule_alloc(tcf_exts_num_actions(&f->exts));
-	if (!cls_flower.rule)
-		return -ENOMEM;
+	if (!cls_flower.rule) {
+		err = -ENOMEM;
+		goto errout;
+	}
 
 	tc_cls_common_offload_init(&cls_flower.common, tp, f->flags, extack);
 	cls_flower.command = FLOW_CLS_REPLACE;
@@ -442,31 +456,43 @@ static int fl_hw_replace_filter(struct tcf_proto *tp,
 	cls_flower.rule->match.key = &f->mkey;
 	cls_flower.classid = f->res.classid;
 
-	err = tc_setup_flow_action(&cls_flower.rule->action, &f->exts,
-				   rtnl_held);
+	err = tc_setup_flow_action(&cls_flower.rule->action, &f->exts);
 	if (err) {
 		kfree(cls_flower.rule);
-		if (skip_sw) {
+		if (skip_sw)
 			NL_SET_ERR_MSG_MOD(extack, "Failed to setup flow action");
-			return err;
-		}
-		return 0;
+		else
+			err = 0;
+		goto errout;
 	}
 
-	err = tc_setup_cb_add(block, tp, TC_SETUP_CLSFLOWER, &cls_flower,
-			      skip_sw, &f->flags, &f->in_hw_count, rtnl_held);
-	tc_cleanup_flow_action(&cls_flower.rule->action);
+	err = tc_setup_cb_call(block, TC_SETUP_CLSFLOWER, &cls_flower, skip_sw);
 	kfree(cls_flower.rule);
 
-	if (err) {
-		fl_hw_destroy_filter(tp, f, rtnl_held, NULL);
-		return err;
+	if (err < 0) {
+		fl_hw_destroy_filter(tp, f, true, NULL);
+		goto errout;
+	} else if (err > 0) {
+		f->in_hw_count = err;
+		err = 0;
+		spin_lock(&tp->lock);
+		tcf_block_offload_inc(block, &f->flags);
+		spin_unlock(&tp->lock);
 	}
 
-	if (skip_sw && !(f->flags & TCA_CLS_FLAGS_IN_HW))
-		return -EINVAL;
+	if (skip_sw && !(f->flags & TCA_CLS_FLAGS_IN_HW)) {
+		err = -EINVAL;
+		goto errout;
+	}
 
-	return 0;
+	spin_lock(&tp->lock);
+	list_add(&f->hw_list, &head->hw_filters);
+	spin_unlock(&tp->lock);
+errout:
+	if (!rtnl_held)
+		rtnl_unlock();
+
+	return err;
 }
 
 static void fl_hw_update_stats(struct tcf_proto *tp, struct cls_fl_filter *f,
@@ -475,17 +501,22 @@ static void fl_hw_update_stats(struct tcf_proto *tp, struct cls_fl_filter *f,
 	struct tcf_block *block = tp->chain->block;
 	struct flow_cls_offload cls_flower = {};
 
+	if (!rtnl_held)
+		rtnl_lock();
+
 	tc_cls_common_offload_init(&cls_flower.common, tp, f->flags, NULL);
 	cls_flower.command = FLOW_CLS_STATS;
 	cls_flower.cookie = (unsigned long) f;
 	cls_flower.classid = f->res.classid;
 
-	tc_setup_cb_call(block, TC_SETUP_CLSFLOWER, &cls_flower, false,
-			 rtnl_held);
+	tc_setup_cb_call(block, TC_SETUP_CLSFLOWER, &cls_flower, false);
 
 	tcf_exts_stats_update(&f->exts, cls_flower.stats.bytes,
 			      cls_flower.stats.pkts,
 			      cls_flower.stats.lastused);
+
+	if (!rtnl_held)
+		rtnl_unlock();
 }
 
 static void __fl_put(struct cls_fl_filter *f)
@@ -1769,7 +1800,7 @@ fl_get_next_hw_filter(struct tcf_proto *tp, struct cls_fl_filter *f, bool add)
 	return NULL;
 }
 
-static int fl_reoffload(struct tcf_proto *tp, bool add, flow_setup_cb_t *cb,
+static int fl_reoffload(struct tcf_proto *tp, bool add, tc_setup_cb_t *cb,
 			void *cb_priv, struct netlink_ext_ack *extack)
 {
 	struct tcf_block *block = tp->chain->block;
@@ -1800,8 +1831,7 @@ static int fl_reoffload(struct tcf_proto *tp, bool add, flow_setup_cb_t *cb,
 		cls_flower.rule->match.mask = &f->mask->key;
 		cls_flower.rule->match.key = &f->mkey;
 
-		err = tc_setup_flow_action(&cls_flower.rule->action, &f->exts,
-					   true);
+		err = tc_setup_flow_action(&cls_flower.rule->action, &f->exts);
 		if (err) {
 			kfree(cls_flower.rule);
 			if (tc_skip_sw(f->flags)) {
@@ -1814,46 +1844,26 @@ static int fl_reoffload(struct tcf_proto *tp, bool add, flow_setup_cb_t *cb,
 
 		cls_flower.classid = f->res.classid;
 
-		err = tc_setup_cb_reoffload(block, tp, add, cb,
-					    TC_SETUP_CLSFLOWER, &cls_flower,
-					    cb_priv, &f->flags,
-					    &f->in_hw_count);
-		tc_cleanup_flow_action(&cls_flower.rule->action);
+		err = cb(TC_SETUP_CLSFLOWER, &cls_flower, cb_priv);
 		kfree(cls_flower.rule);
 
 		if (err) {
-			__fl_put(f);
-			return err;
+			if (add && tc_skip_sw(f->flags)) {
+				__fl_put(f);
+				return err;
+			}
+			goto next_flow;
 		}
+
+		spin_lock(&tp->lock);
+		tc_cls_offload_cnt_update(block, &f->in_hw_count, &f->flags,
+					  add);
+		spin_unlock(&tp->lock);
 next_flow:
 		__fl_put(f);
 	}
 
 	return 0;
-}
-
-static void fl_hw_add(struct tcf_proto *tp, void *type_data)
-{
-	struct flow_cls_offload *cls_flower = type_data;
-	struct cls_fl_filter *f =
-		(struct cls_fl_filter *) cls_flower->cookie;
-	struct cls_fl_head *head = fl_head_dereference(tp);
-
-	spin_lock(&tp->lock);
-	list_add(&f->hw_list, &head->hw_filters);
-	spin_unlock(&tp->lock);
-}
-
-static void fl_hw_del(struct tcf_proto *tp, void *type_data)
-{
-	struct flow_cls_offload *cls_flower = type_data;
-	struct cls_fl_filter *f =
-		(struct cls_fl_filter *) cls_flower->cookie;
-
-	spin_lock(&tp->lock);
-	if (!list_empty(&f->hw_list))
-		list_del_init(&f->hw_list);
-	spin_unlock(&tp->lock);
 }
 
 static int fl_hw_create_tmplt(struct tcf_chain *chain,
@@ -1876,7 +1886,7 @@ static int fl_hw_create_tmplt(struct tcf_chain *chain,
 	/* We don't care if driver (any of them) fails to handle this
 	 * call. It serves just as a hint for it.
 	 */
-	tc_setup_cb_call(block, TC_SETUP_CLSFLOWER, &cls_flower, false, true);
+	tc_setup_cb_call(block, TC_SETUP_CLSFLOWER, &cls_flower, false);
 	kfree(cls_flower.rule);
 
 	return 0;
@@ -1892,7 +1902,7 @@ static void fl_hw_destroy_tmplt(struct tcf_chain *chain,
 	cls_flower.command = FLOW_CLS_TMPLT_DESTROY;
 	cls_flower.cookie = (unsigned long) tmplt;
 
-	tc_setup_cb_call(block, TC_SETUP_CLSFLOWER, &cls_flower, false, true);
+	tc_setup_cb_call(block, TC_SETUP_CLSFLOWER, &cls_flower, false);
 }
 
 static void *fl_tmplt_create(struct net *net, struct tcf_chain *chain,
@@ -2516,8 +2526,6 @@ static struct tcf_proto_ops cls_fl_ops __read_mostly = {
 	.delete		= fl_delete,
 	.walk		= fl_walk,
 	.reoffload	= fl_reoffload,
-	.hw_add		= fl_hw_add,
-	.hw_del		= fl_hw_del,
 	.dump		= fl_dump,
 	.bind_class	= fl_bind_class,
 	.tmplt_create	= fl_tmplt_create,

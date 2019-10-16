@@ -1044,10 +1044,8 @@ static void __init of_unittest_platform_populate(void)
 	test_bus = platform_device_register_full(&test_bus_info);
 	rc = PTR_ERR_OR_ZERO(test_bus);
 	unittest(!rc, "testbus registration failed; rc=%i\n", rc);
-	if (rc) {
-		of_node_put(np);
+	if (rc)
 		return;
-	}
 	test_bus->dev.of_node = np;
 
 	/*

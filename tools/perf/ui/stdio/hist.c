@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <stdio.h>
-#include <stdlib.h>
 #include <linux/string.h>
 
 #include "../../util/callchain.h"
-#include "../../util/debug.h"
-#include "../../util/event.h"
 #include "../../util/hist.h"
 #include "../../util/map.h"
 #include "../../util/map_groups.h"

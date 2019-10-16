@@ -10,6 +10,7 @@
 #include <math.h>
 #include <linux/ctype.h>
 
+#include "perf.h"
 #include "debug.h"
 #include "time-utils.h"
 #include "session.h"
