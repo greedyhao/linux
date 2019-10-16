@@ -156,6 +156,7 @@ struct rds_ib_connection {
 
 	/* To control the number of wrs from fastreg */
 	atomic_t		i_fastreg_wrs;
+	atomic_t		i_fastreg_inuse_count;
 
 	/* interrupt handling */
 	struct tasklet_struct	i_send_tasklet;
@@ -219,6 +220,7 @@ struct rds_ib_connection {
 	/* Send/Recv vectors */
 	int			i_scq_vector;
 	int			i_rcq_vector;
+	u8			i_sl;
 };
 
 /* This assumes that atomic_t is at least 32 bits */
