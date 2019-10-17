@@ -116,7 +116,7 @@
 };
 
 &i2c0 {
-	gt911: touchscreen@14 {
+	gt911: touchscreen@5d {
         compatible = "goodix,gt911";
         reg = <0x5d>;
         interrupt-parent = <&pio>;
@@ -126,4 +126,8 @@
         reset-gpios = <&pio 2 1 GPIO_ACTIVE_HIGH>; /* RST (PC1) */
         /* touchscreen-swapped-x-y */
     };
+};
+
+&i2c1 {
+	status = "okay";
 };

@@ -350,6 +350,11 @@
 				function = "i2c0";
 			};
 
+			i2c1_pins: i2c1-pins {
+				pins = "PE21", "PE22";
+				function = "i2c1";
+			};
+
 			pwm0_pins: pwm0 {
 				pins = "PB4";
 				function = "pwm0";
@@ -491,6 +496,8 @@
 			interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&ccu CLK_BUS_I2C1>;
 			resets = <&ccu RST_BUS_I2C1>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&i2c1_pins>;
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
